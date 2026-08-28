@@ -1,21 +1,17 @@
 /**
- * Placeholder landing page. The real operations dashboard (queue metrics, at-risk
- * counts, etc. — docs/REQUIREMENTS_MATRIX.md items #25-31) is built in Phase 10, once
- * there's a real API (Phase 8) for it to read from. Shipping a page that calls a real
- * screen "done" before that API exists would be exactly the kind of premature
- * "production ready" claim this project explicitly forbids.
+ * Landing page. The full operations dashboard (queue metrics, at-risk counts across the
+ * whole org — docs/REQUIREMENTS_MATRIX.md #25-26) is a further iteration on top of the
+ * Queue screen built in this phase; this page is the entry point + nav, not a metrics
+ * dashboard yet — see PROGRESS.md Phase 10 report for exactly what's built vs. deferred.
  */
 export default function HomePage() {
   return (
-    <main style={{ padding: "3rem", maxWidth: 720 }}>
+    <main>
       <h1>Project Lien</h1>
-      <p>
-        Next-generation eRecording &amp; mortgage lien-release platform — operations
-        console.
-      </p>
+      <p>Next-generation eRecording &amp; mortgage lien-release platform — operations console.</p>
       <p style={{ color: "#666" }}>
-        This is a Phase 1 scaffold. See <code>PROGRESS.md</code> in the repository for
-        current build status.
+        Log in, then use <strong>Queue</strong> to see recording packages for your organization, or{" "}
+        <strong>Jurisdictions</strong> to look up a state&apos;s compliance rule.
       </p>
     </main>
   );

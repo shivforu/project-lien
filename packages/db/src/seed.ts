@@ -162,6 +162,28 @@ export async function seed(): Promise<void> {
     .onConflict((oc) => oc.column("id").doUpdateSet((eb) => ({ name: eb.ref("excluded.name") })))
     .execute();
 
+  // Demo login for local dev / manual UI verification (docs/LOCAL_DEVELOPMENT.md):
+  // admin@demo-title-escrow.example / password123. Hash generated once with bcryptjs at
+  // seed-authoring time — never regenerated at runtime, so this is a fixed, known
+  // dev-only credential, not a randomly rotating one.
+  console.log("[seed] Upserting demo admin user...");
+  const demoUserId = "00000000-0000-0000-0000-0000000000f1";
+  await db
+    .insertInto("users")
+    .values({
+      id: demoUserId,
+      email: "admin@demo-title-escrow.example",
+      password_hash: "$2b$10$bxDvZTriIDad9qTrIV5t6.ppUth8B6bFGOI1xYU5Y1ftG0bD8xokS",
+      full_name: "Demo Admin",
+    })
+    .onConflict((oc) => oc.column("id").doUpdateSet((eb) => ({ email: eb.ref("excluded.email") })))
+    .execute();
+  await db
+    .insertInto("org_memberships")
+    .values({ organization_id: orgId, user_id: demoUserId, role: "ORG_ADMIN" })
+    .onConflict((oc) => oc.columns(["organization_id", "user_id"]).doNothing())
+    .execute();
+
   console.log("[seed] Done.");
 }
 

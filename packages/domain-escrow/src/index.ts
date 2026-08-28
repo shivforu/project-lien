@@ -7,3 +7,6 @@
  * Built out in Phase 7 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/domain-escrow";
+
+export * from "./ledger.js";
+export * from "./deadline-monitor.js";

@@ -10,6 +10,12 @@
     "lint": "eslint src --ext .ts",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@project-lien/db": "workspace:*",
+    "handlebars": "^4.7.9",
+    "pdf-lib": "^1.17.1",
+    "playwright": "^1.47.0"
+  },
   "devDependencies": {
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

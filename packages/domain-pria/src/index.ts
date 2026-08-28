@@ -6,3 +6,7 @@
  * Built out in Phase 4 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/domain-pria";
+
+export * from "./types.js";
+export * from "./serializer.js";
+export * from "./validator.js";

@@ -4,3 +4,5 @@
  * Built out in Phase 2 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/domain-fees";
+
+export * from "./calculator.js";

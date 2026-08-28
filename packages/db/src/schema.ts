@@ -81,13 +81,23 @@ export type ConnectorHealth = "HEALTHY" | "DEGRADED" | "DOWN" | "UNKNOWN";
 export type ActorType = "SYSTEM" | "USER" | "API";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
+// NOTE: `Generated<T>` (from Kysely) is `ColumnType<T, T | undefined, T>` — it expects a
+// *plain* select type, not another ColumnType. `GeneratedTimestamp` would therefore
+// double-wrap into `ColumnType<Timestamp, Timestamp | undefined, Timestamp>`, making the
+// insert/update type the `Timestamp` alias itself rather than `Date | string` — a real
+// bug caught during Phase 6 build/typecheck when `domain-workflow` tried to insert a
+// plain `Date` into a `GeneratedTimestamp` column and `tsc` correctly refused it. Every
+// DB-generated timestamp column (created_at/updated_at, and other `now()`-defaulted
+// columns) uses this dedicated type instead, which expresses the same "optional on
+// insert, Date on select, Date|string on insert/update" contract without the double-wrap.
+type GeneratedTimestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 
 export interface OrganizationsTable {
   id: Generated<string>;
   name: string;
   slug: string;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface UsersTable {
@@ -96,8 +106,8 @@ export interface UsersTable {
   password_hash: string;
   full_name: string;
   is_active: Generated<boolean>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface OrgMembershipsTable {
@@ -105,7 +115,7 @@ export interface OrgMembershipsTable {
   organization_id: string;
   user_id: string;
   role: OrgRole;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface ApiKeysTable {
@@ -114,7 +124,7 @@ export interface ApiKeysTable {
   name: string;
   key_prefix: string;
   hashed_key: string;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
   revoked_at: Timestamp | null;
 }
 
@@ -137,8 +147,8 @@ export interface StateJurisdictionRulesTable {
   verified_at: Timestamp | null;
   verified_by: string | null;
   version: Generated<number>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface CountyJurisdictionRulesTable {
@@ -158,8 +168,8 @@ export interface CountyJurisdictionRulesTable {
   verified_at: Timestamp | null;
   verified_by: string | null;
   version: Generated<number>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface RuleVersionsTable {
@@ -167,7 +177,7 @@ export interface RuleVersionsTable {
   rule_type: RuleType;
   rule_key: string;
   snapshot: unknown;
-  changed_at: Generated<Timestamp>;
+  changed_at: GeneratedTimestamp;
   changed_by: string | null;
   change_reason: string | null;
 }
@@ -183,8 +193,8 @@ export interface PropertiesTable {
   zip_code: string;
   county_fips: string;
   county_name: string;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface LoansTable {
@@ -199,8 +209,8 @@ export interface LoansTable {
   original_instrument_number: string | null;
   borrower_name: string;
   status: Generated<LoanStatus>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface PayoffQuotesTable {
@@ -213,7 +223,7 @@ export interface PayoffQuotesTable {
   wire_reference: string | null;
   is_settled: Generated<boolean>;
   settled_at: Timestamp | null;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface RecordingPackagesTable {
@@ -236,8 +246,8 @@ export interface RecordingPackagesTable {
   submitted_at: Timestamp | null;
   recorded_at: Timestamp | null;
   completed_at: Timestamp | null;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface PartiesTable {
@@ -248,14 +258,14 @@ export interface PartiesTable {
   is_organization: Generated<boolean>;
   name: string;
   contact_email: string | null;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface DocumentsTable {
   id: Generated<string>;
   package_id: string;
   kind: DocumentKind;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface DocumentVersionsTable {
@@ -268,7 +278,7 @@ export interface DocumentVersionsTable {
   checksum_sha256: string;
   byte_size: number;
   previous_version_id: string | null;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
   created_by: string | null;
 }
 
@@ -277,7 +287,7 @@ export interface PreflightRunsTable {
   package_id: string;
   passed: boolean;
   engine_version: string;
-  ran_at: Generated<Timestamp>;
+  ran_at: GeneratedTimestamp;
 }
 
 export interface PreflightFindingsTable {
@@ -287,7 +297,7 @@ export interface PreflightFindingsTable {
   code: string;
   message: string;
   page_number: number | null;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface VendorSubmissionsTable {
@@ -303,7 +313,7 @@ export interface VendorSubmissionsTable {
   rejection_reason: string | null;
   submitted_at: Timestamp | null;
   responded_at: Timestamp | null;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface VendorEventsTable {
@@ -311,7 +321,7 @@ export interface VendorEventsTable {
   vendor_submission_id: string;
   event_type: VendorEventType;
   payload: unknown;
-  occurred_at: Generated<Timestamp>;
+  occurred_at: GeneratedTimestamp;
 }
 
 export interface WorkflowEventsTable {
@@ -322,7 +332,7 @@ export interface WorkflowEventsTable {
   actor: string;
   reason: string | null;
   metadata: unknown;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface WorkflowJobsTable {
@@ -333,13 +343,13 @@ export interface WorkflowJobsTable {
   payload: unknown;
   attempts: Generated<number>;
   max_attempts: Generated<number>;
-  available_at: Generated<Timestamp>;
+  available_at: GeneratedTimestamp;
   locked_at: Timestamp | null;
   locked_by: string | null;
   idempotency_key: string | null;
   last_error: string | null;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface EscrowAccountsTable {
@@ -348,8 +358,8 @@ export interface EscrowAccountsTable {
   loan_id: string;
   balance_cents: Generated<number>;
   held_recording_fee_cents: Generated<number>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface LedgerTransactionsTable {
@@ -359,7 +369,7 @@ export interface LedgerTransactionsTable {
   amount_cents: number;
   reference_package_id: string | null;
   description: string;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface FeeEstimatesTable {
@@ -371,7 +381,7 @@ export interface FeeEstimatesTable {
   cover_page_fee_cents: number;
   page_count: number;
   total_estimated_cents: number;
-  calculated_at: Generated<Timestamp>;
+  calculated_at: GeneratedTimestamp;
 }
 
 export interface FeeReconciliationsTable {
@@ -382,7 +392,7 @@ export interface FeeReconciliationsTable {
   variance_cents: number;
   status: FeeReconciliationStatus;
   refund_amount_cents: Generated<number>;
-  reconciled_at: Generated<Timestamp>;
+  reconciled_at: GeneratedTimestamp;
 }
 
 export interface WebhookEndpointsTable {
@@ -392,8 +402,8 @@ export interface WebhookEndpointsTable {
   secret: string;
   subscribed_events: string[];
   is_active: Generated<boolean>;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface WebhookDeliveriesTable {
@@ -406,7 +416,7 @@ export interface WebhookDeliveriesTable {
   last_attempt_at: Timestamp | null;
   response_status_code: number | null;
   delivery_key: string;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface IntegrationConnectionsTable {
@@ -417,8 +427,8 @@ export interface IntegrationConnectionsTable {
   config: unknown;
   health: Generated<ConnectorHealth>;
   last_checked_at: Timestamp | null;
-  created_at: Generated<Timestamp>;
-  updated_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
+  updated_at: GeneratedTimestamp;
 }
 
 export interface AuditEventsTable {
@@ -431,7 +441,7 @@ export interface AuditEventsTable {
   entity_id: string | null;
   details: unknown;
   correlation_id: string | null;
-  created_at: Generated<Timestamp>;
+  created_at: GeneratedTimestamp;
 }
 
 export interface Database {

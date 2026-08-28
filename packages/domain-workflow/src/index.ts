@@ -6,3 +6,7 @@
  * Built out in Phase 6 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/domain-workflow";
+
+export * from "./state-machine.js";
+export * from "./backoff.js";
+export * from "./job-queue.js";

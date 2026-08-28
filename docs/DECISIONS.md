@@ -69,6 +69,21 @@ literals with manual x/y coordinates, which is unmaintainable and risky for text
 non-engineer will need to review and correct per state. Templates are reviewable by a
 non-engineer, diffable, and match the "master template with conditional injectors" idea
 Requirements.pdf itself proposes (page 27) as the realistic path to covering 50 states.
+**Decision (revised, Phase 3):** headless-Chromium driver is **Playwright**, not
+Puppeteer. Both wrap the same Chrome DevTools Protocol and the swap is a one-file change
+(`packages/domain-documents/src/pdf/renderer.ts`); the reason is entirely environmental,
+the same class of issue as D2's Prisma pivot: this build sandbox comes with Playwright's
+Chromium already installed at a fixed path (`PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers`,
+`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`), so `npx playwright install` is never invoked and
+there is no at-install-time CDN fetch to fail. Puppeteer's install step downloads its own
+Chromium build from `storage.googleapis.com` on every fresh `pnpm install`, which is
+exactly the kind of external-CDN dependency that broke Prisma in this same sandbox — using
+Puppeteer would have been an unverified bet that a *different* CDN happens to be reachable.
+Playwright's `chromium.launch()` (resolved via its own installed-browser registry, or an
+explicit `executablePath` override) was verified working end-to-end in this build (see
+PROGRESS.md Phase 3). On a machine without a pre-installed browser, `playwright install
+chromium` is the equivalent one-time setup step (documented in docs/LOCAL_DEVELOPMENT.md);
+the rendering code itself does not care which tool fetched the browser.
 
 ## D5: Computer-vision / notary-seal validation
 **Decision:** Define `ISignatureVisionProvider` (checks: signature present, notary seal

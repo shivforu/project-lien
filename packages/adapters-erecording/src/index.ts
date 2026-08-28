@@ -7,3 +7,7 @@
  * Built out in Phase 5 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/adapters-erecording";
+
+export * from "./types.js";
+export * from "./mock-adapter.js";
+export * from "./router.js";

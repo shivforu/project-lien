@@ -7,3 +7,9 @@
  * Built out in Phase 3 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/domain-documents";
+
+export * from "./templating.js";
+export * from "./preflight.js";
+export * from "./vision.js";
+export * from "./pdf/margins.js";
+export * from "./pdf/renderer.js";

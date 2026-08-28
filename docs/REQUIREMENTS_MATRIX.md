@@ -43,9 +43,9 @@ scope, see ASSUMPTIONS.md / DECISIONS.md).
 | 34 | LOS/TMS connector architecture | pp.29–30 (named vendors, no specs) | adapters-los | interface + 1 mock connector | contract test | MOCKED |
 | 35 | Document storage abstraction | p.8 (S3+KMS mention) | adapters-storage | `IDocumentStorage` (MinIO/S3) | integration | NOT_STARTED |
 | 36 | Observability (logs, correlation ids, health/ready) | pp.89–90 (`/health` only) | shared-config + apps | pino logging, `/health`, `/ready` | manual + integration | NOT_STARTED |
-| 37 | Docker local environment | pp.90–93, hardened pp.101–102 | infra | Dockerfile(s) + docker-compose.yml | manual verification (no daemon in build sandbox — see LOCAL_DEVELOPMENT.md) | IN_PROGRESS |
+| 37 | Docker local environment | pp.90–93, hardened pp.101–102 | infra | 3 Dockerfiles + docker-compose.yml (postgres, minio, migrate, api, worker, web) | written and code-reviewed; not run under a real Docker daemon in this build sandbox (none available — see docs/LOCAL_DEVELOPMENT.md); the same code paths were verified by running the compiled binaries directly against a native Postgres | DONE (unverified under Docker itself — ask the user to confirm `docker compose up -d` on their machine) |
 | 38 | CI/CD-ready structure | not in transcript | infra/ci | GitHub Actions workflows | CI run | NOT_STARTED |
-| 39 | 50-state seed data | pp.39–40, 87–88 | db seed | Prisma seed, `status=UNVERIFIED` throughout | n/a (data, not logic) | NOT_STARTED |
+| 39 | 50-state seed data | pp.39–40, 87–88 | db seed | `packages/db/src/seed.ts`, every row `status=UNVERIFIED`, `source='requirements_pdf_transcript'` | verified live: seeded into local Postgres, queried via psql, confirmed 50/50 states + provenance columns correct | DONE (data seeded; legal re-verification of any individual state is future work, tracked here) |
 | 40 | Currency-safe ledger math (no floats) | project instructions (transcript used `NUMERIC` in SQL but floats in JS via `parseFloat`, a real bug carried through every module) | domain-escrow | integer-cents arithmetic | unit | NOT_STARTED |
 
 This table is updated at the end of every phase in PROGRESS.md's phase report and here

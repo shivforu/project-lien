@@ -1,4 +1,4 @@
-import { assertTransition, enqueueJob } from "@project-lien/domain-workflow";
+import { assertTransition, dispatchWebhookEvent, enqueueJob } from "@project-lien/domain-workflow";
 import type { PackageStatus, VendorSubmissionStatus } from "@project-lien/db";
 import { erecordingRouter } from "../vendor-router.js";
 import type { JobHandler } from "./types.js";
@@ -96,4 +96,10 @@ export const pollVendorSubmissionHandler: JobHandler = async (rawPayload, { db, 
     .execute();
 
   logger.info({ packageId: pkg.id, from: pkg.status, to: nextStatus }, "package transitioned via vendor poll");
+
+  await dispatchWebhookEvent(db, pkg.organization_id, "package.status_changed", {
+    packageId: pkg.id,
+    fromStatus: pkg.status,
+    toStatus: nextStatus,
+  });
 };

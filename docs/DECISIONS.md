@@ -177,3 +177,21 @@ shared types, and shared config/logging.
 **Why:** The domains above are independently testable and reused between the API and the
 worker process; a monorepo with shared packages avoids duplicating domain logic between
 those two runtimes while keeping one `pnpm install` / one CI pipeline.
+
+## D14: Module output is CommonJS, despite ESM-style source
+**Decision:** No `package.json` in this repo sets `"type": "module"`. Combined with
+`tsconfig.base.json`'s `module`/`moduleResolution: NodeNext`, this means every package's
+source is *authored* in ESM syntax (`import`/`export`, `.js`-suffixed relative imports)
+but *compiles* to CommonJS `require()` output — TypeScript's NodeNext mode picks the
+output format per package based on its `package.json` `type` field, and the absence of
+that field defaults to CommonJS.
+**Why:** This was never a deliberate choice — it surfaced in Phase 8 when
+`apps/api/src/app.ts` tried to use `import.meta.url` (to resolve `openapi.json`'s path
+relative to the compiled file) and `tsc` rejected it with "the 'import.meta' meta-property
+is not allowed in files which will build into CommonJS output." The fix used there is the
+ambient CommonJS `__dirname` instead. Left as CommonJS output rather than adding
+`"type": "module"` everywhere, because switching now would need re-verifying every
+package's build/test/runtime behavior (Jest/vitest-style test runners and some npm
+packages still assume CJS by default) for no functional benefit at this project's current
+stage — worth revisiting deliberately in a later phase if there's a concrete reason to
+want native ESM output (e.g. top-level await, or a dependency that is ESM-only).

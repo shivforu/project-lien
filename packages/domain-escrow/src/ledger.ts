@@ -124,7 +124,7 @@ export async function remitRecordingFee(
   await db.transaction().execute(async (trx) => {
     const account = await lockEscrowAccount(trx, escrowAccountId);
 
-    let newHeld = account.held_recording_fee_cents - estimatedCents;
+    const newHeld = account.held_recording_fee_cents - estimatedCents;
     let newBalance = account.balance_cents;
     let refundAmountCents = 0;
 

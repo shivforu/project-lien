@@ -1,0 +1,137 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Project Lien API",
+    "version": "1.0.0-alpha",
+    "description": "Versioned REST API for the Project Lien eRecording/lien-release platform. This document covers only the endpoints actually implemented so far (see PROGRESS.md and docs/API.md for the full target surface); everything else on /api/v1 returns 501 NOT_IMPLEMENTED rather than a bare 404."
+  },
+  "servers": [{ "url": "/api/v1" }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "details": { "type": "array", "items": {} }
+            },
+            "required": ["code", "message"]
+          }
+        }
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Exchange email/password for an access + refresh token pair",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "email": { "type": "string", "format": "email" }, "password": { "type": "string" } },
+                "required": ["email", "password"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Login succeeded" },
+          "401": { "description": "Invalid credentials", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/jurisdictions": {
+      "get": { "summary": "List all state jurisdiction rules", "responses": { "200": { "description": "OK" } } }
+    },
+    "/jurisdictions/{stateCode}": {
+      "get": {
+        "summary": "Resolve a state (and optionally county) jurisdiction rule",
+        "parameters": [
+          { "name": "stateCode", "in": "path", "required": true, "schema": { "type": "string", "minLength": 2, "maxLength": 2 } },
+          { "name": "countyFips", "in": "query", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Unknown state or county" } }
+      }
+    },
+    "/fees/calculate": {
+      "post": {
+        "summary": "Calculate a recording fee breakdown for a county + page count",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "countyFips": { "type": "string" }, "pageCount": { "type": "integer", "minimum": 1 } }, "required": ["countyFips", "pageCount"] } } }
+        },
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Unknown county" } }
+      }
+    },
+    "/releases": {
+      "get": {
+        "summary": "List recording packages for the caller's organization (cursor-paginated)",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "maximum": 100, "default": 25 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "OK" } }
+      },
+      "post": {
+        "summary": "Create a recording package (idempotent on packageIdentifier)",
+        "description": "Requires role ORG_ADMIN or OPERATOR.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "packageIdentifier": { "type": "string" },
+                  "loanId": { "type": "string", "format": "uuid" },
+                  "propertyId": { "type": "string", "format": "uuid" },
+                  "stateCode": { "type": "string" },
+                  "countyFips": { "type": "string" },
+                  "settlementDate": { "type": "string", "format": "date-time" }
+                },
+                "required": ["packageIdentifier", "loanId", "propertyId", "stateCode", "countyFips"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created" },
+          "200": { "description": "Already existed (idempotent retry)" },
+          "403": { "description": "Caller's role is not ORG_ADMIN or OPERATOR" },
+          "422": { "description": "Unknown jurisdiction" }
+        }
+      }
+    },
+    "/releases/{id}": {
+      "get": {
+        "summary": "Fetch one recording package (tenant-scoped)",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found in the caller's organization" } }
+      }
+    },
+    "/webhooks": {
+      "get": { "summary": "List the org's registered webhook endpoints (secret never returned)", "responses": { "200": { "description": "OK" } } },
+      "post": {
+        "summary": "Register a webhook endpoint. The generated secret is returned once, in this response only.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "url": { "type": "string", "format": "uri" }, "subscribedEvents": { "type": "array", "items": { "type": "string" } } }, "required": ["url", "subscribedEvents"] } } }
+        },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/health": { "get": { "summary": "Liveness check", "security": [], "responses": { "200": { "description": "OK" } } } },
+    "/ready": { "get": { "summary": "Readiness check (verifies DB connectivity)", "security": [], "responses": { "200": { "description": "Ready" }, "503": { "description": "Not ready" } } } }
+  }
+}

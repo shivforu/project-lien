@@ -10,3 +10,4 @@ export const PACKAGE_NAME = "@project-lien/domain-workflow";
 export * from "./state-machine.js";
 export * from "./backoff.js";
 export * from "./job-queue.js";
+export * from "./webhook-dispatch.js";

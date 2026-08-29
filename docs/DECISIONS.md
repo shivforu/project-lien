@@ -708,3 +708,40 @@ by this point a clear pattern: this project's mandate to verify everything for r
 everything *within* each phase's own scope, but "a brand new clone, on a machine that has
 never touched this repo before, running only the documented commands" was a scope no phase
 had ever actually been in.
+
+## D29: Turborepo's cache didn't know `tsconfig.base.json` affects every package's build — the D28 fix appeared not to work because turbo kept replaying the pre-fix, still-broken cached output
+
+**Decision:** Found when the same real user pulled the D28 fix (removing `composite` from
+`tsconfig.base.json`), ran the exact clean-and-rebuild steps given to them, and hit the
+*identical* `TS7016: Could not find a declaration file for module '@project-lien/db'` error
+again, unchanged. Reproduced directly: with a fully valid build in place, appending a
+trivial comment to `tsconfig.base.json` and re-running `pnpm build` still printed `Cached:
+15 cached, 15 total ... >>> FULL TURBO` — every single package, including ones that
+`import` from `@project-lien/db` and would need to see its fixed output, was served
+straight from cache with `tsc` never invoked at all. Root cause: Turborepo's default task
+input hashing only considers files inside that task's own package directory (plus the
+lockfile and any env vars a task explicitly declares) — it has no built-in way to know a
+`"extends": "../../tsconfig.base.json"` reference in a package's own `tsconfig.json` means
+changes to that shared root-level file should invalidate the task's cache too. So D28's
+fix was completely correct as *source code*, but on any machine holding a cache entry from
+before D28 (which, on this real user's machine, had captured the still-broken output — a
+`dist/index.js` with no matching `dist/index.d.ts`, from the D27/D28 investigation itself),
+`pnpm build` kept silently replaying that stale, already-broken artifact indefinitely,
+making the fix look like it had done nothing at all. Fixed by adding `"globalDependencies":
+["tsconfig.base.json"]` to `turbo.json` — this tells turbo to fold that file's content hash
+into *every* task's cache key, so any future edit to it (this one included) correctly busts
+every cached build across the whole monorepo, once.
+**Why:** Verified with the same before/after technique used to find the bug: with a valid
+build cached, editing `tsconfig.base.json` before this fix produced a `FULL TURBO` cache
+hit (proving the staleness bug); after adding `globalDependencies`, the identical edit
+produced `Cached: 0 cached, 15 total` (every package correctly rebuilt); reverting the edit
+back to its committed content then correctly restored `FULL TURBO` again, confirming this
+doesn't just brute-force-disable caching — it hashes the file's actual content, exactly as
+intended. `pnpm typecheck` (27/27) and `pnpm test` (26/26) re-ran clean afterward. This is
+the fourth real, previously invisible local-setup bug this one real user's fresh-clone
+attempt surfaced, and the second in a row (with D28) that only existed because two
+independent caching layers — Turborepo's and TypeScript's own incremental compiler cache —
+didn't know about each other's assumptions. Anyone maintaining this repo should treat
+`tsconfig.base.json` (and any other file a per-package config `extends`, references, or
+otherwise depends on outside its own directory) as needing a `globalDependencies` entry the
+moment it's introduced, not after a second real user rediscovers the same failure mode.

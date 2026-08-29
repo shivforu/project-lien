@@ -1,5 +1,17 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  // Every package's tsconfig.json does `"extends": "../../tsconfig.base.json"`, but turbo's
+  // default input-hashing for a task only looks at files inside that task's own package
+  // directory (plus the lockfile and any declared env vars) — it has no way to know a task
+  // depends on a file two directories up unless told so explicitly here. Without this,
+  // editing tsconfig.base.json (e.g. docs/DECISIONS.md D28's removal of "composite") is
+  // invisible to turbo's cache: every package's build task keeps whatever it last cached,
+  // even though what `tsc` would now actually produce has changed — confirmed directly by
+  // editing tsconfig.base.json and re-running `pnpm build` without this: still "FULL TURBO",
+  // 15/15 cached, 78ms, correctly re-running nothing. This is what let a real user's
+  // already-broken cached dist/ output (produced during the still-buggy D28 state, missing
+  // its .d.ts) keep being silently replayed even after they pulled the D28 fix itself.
+  "globalDependencies": ["tsconfig.base.json"],
   "globalPassThroughEnv": [
     "PLAYWRIGHT_BROWSERS_PATH",
     "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",

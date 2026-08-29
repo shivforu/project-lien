@@ -15,7 +15,18 @@
     "declarationMap": true,
     "sourceMap": true,
     "resolveJsonModule": true,
-    "isolatedModules": true,
-    "composite": true
+    "isolatedModules": true
+    // NOT "composite" (removed — see docs/DECISIONS.md D28): nothing in this repo uses TS
+    // project references (no tsconfig anywhere has a "references" array), so composite
+    // bought nothing except forcing every `tsc -p` build to consult and trust a
+    // tsconfig.tsbuildinfo cache Turborepo doesn't know exists. That cache tracks source-
+    // file hashes only — it never verifies its recorded output files still exist on disk —
+    // so any deletion of dist/ without also deleting tsconfig.tsbuildinfo (a plain `rm -rf
+    // dist`, an interrupted build, anything short of this repo's own `clean` script, which
+    // always removes both together) leaves tsc convinced it's already up to date: it exits
+    // 0 and silently emits nothing. declaration/declarationMap/sourceMap above don't need
+    // composite — only project-reference builds (`tsc -b`) do — so removing it costs
+    // nothing and closes off an entire class of "build succeeded but produced nothing"
+    // failures that a real user hit and Turborepo's own cache has no way to detect.
   }
 }

@@ -666,3 +666,45 @@ with `MODULE_NOT_FOUND` in seconds. After: turbo's log showed `@project-lien/db:
 invisible setup bugs, found back to back, only because one real user finally ran this
 project's own documented instructions end to end on a machine that had never run them
 before.
+
+## D28: `tsc`'s own incremental cache (`composite`/`tsconfig.tsbuildinfo`) could silently skip emitting a package's `dist/` output entirely — removed `composite`, since nothing here uses TS project references anyway
+
+**Decision:** Found immediately after D27, on the very next `pnpm dev` the same real user
+ran with that fix applied: `@project-lien/adapters-erecording` (and other packages
+importing `@project-lien/db`) failed to build with `TS7016: Could not find a declaration
+file for module '@project-lien/db'` — but critically, `.../packages/db/dist/index.js`
+*did* exist; only `dist/index.d.ts` was missing. Reproduced directly in this project's own
+sandbox by deleting a package's `dist/` while leaving its `tsconfig.tsbuildinfo` in place
+and re-running `tsc -p tsconfig.json`: it exited `0` and wrote nothing at all, `dist/`
+included — confirmed by first reproducing the milder symptom (declaration-only gap) and
+then the full one (nothing emitted, `TS2307: Cannot find module` instead). Root cause:
+`tsconfig.base.json` set `"composite": true`, which TypeScript documents as always implying
+incremental compilation — `tsc` writes a `tsconfig.tsbuildinfo` recording source-file
+hashes and, on a later invocation, trusts that file completely: it checks whether sources
+changed, never whether the *output files it's supposed to produce still exist on disk*. A
+`dist/` deleted (or partially deleted) without its matching `tsconfig.tsbuildinfo` — a
+plain `rm -rf dist`, an interrupted build, any path other than this repo's own `clean`
+script, which has always removed both together — leaves `tsc` confidently wrong about its
+own state. `composite` was never buying anything here in the first place: it exists in
+TypeScript specifically to support multi-project *project reference* builds (`tsc -b`), and
+a grep across every `tsconfig.json` in the repo for a `"references"` array turned up
+nothing — this project has never used that feature. Worse, this is a fundamentally bad mix
+with Turborepo specifically: Turborepo layers its own "skip this task if inputs are
+unchanged" cache on top, with no visibility into (or way to invalidate) tsc's separate,
+independent incremental cache — two caching layers that can silently disagree about whether
+a package's dist/ is real. Removed `composite` from `tsconfig.base.json` entirely;
+`declaration`/`declarationMap`/`sourceMap` (the actually-used output) don't depend on it.
+**Why:** Verified for real, twice. First, the exact corruption path: deleted only
+`packages/db/dist/` while leaving `tsconfig.tsbuildinfo` in place, ran `npx tsc -p
+tsconfig.json` directly — before this fix, exit `0` with nothing written; after removing
+`composite`, no `tsconfig.tsbuildinfo` is ever written at all, so `tsc` has nothing stale to
+trust and always regenerates `dist/index.js`+`dist/index.d.ts` from scratch. Second, a full
+simulated-fresh-clone rebuild (every `dist/` and every `tsconfig.tsbuildinfo` deleted,
+`.turbo`'s cache cleared): `pnpm build` (15/15), `pnpm typecheck` (27/27), `pnpm test`
+(26/26), and `pnpm dev` all passed clean, with the api and worker processes actually
+listening/running rather than crashing. This is the third real, previously invisible local-
+setup bug this same real user's from-scratch run surfaced back to back with D26 and D27 —
+by this point a clear pattern: this project's mandate to verify everything for real caught
+everything *within* each phase's own scope, but "a brand new clone, on a machine that has
+never touched this repo before, running only the documented commands" was a scope no phase
+had ever actually been in.

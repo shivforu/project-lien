@@ -36,6 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function QueuePage() {
   const [packages, setPackages] = useState<PackageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [canCreate, setCanCreate] = useState(false);
 
   useEffect(() => {
     const session = getSession();
@@ -43,6 +44,7 @@ export default function QueuePage() {
       window.location.href = "/login";
       return;
     }
+    setCanCreate(session.role === "ORG_ADMIN" || session.role === "OPERATOR");
     apiFetch<ListResponse>("/api/v1/releases?limit=50")
       .then((res) => setPackages(res.data))
       .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load queue"));
@@ -53,7 +55,14 @@ export default function QueuePage() {
 
   return (
     <main>
-      <h1>Recording queue</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1>Recording queue</h1>
+        {canCreate && (
+          <Link href="/queue/new" style={{ padding: "0.5rem 1rem", background: "#111827", color: "#fff", textDecoration: "none", borderRadius: "4px", fontSize: "0.9rem" }}>
+            + New package
+          </Link>
+        )}
+      </div>
       {packages.length === 0 ? (
         <p style={{ color: "#666" }}>No recording packages yet.</p>
       ) : (

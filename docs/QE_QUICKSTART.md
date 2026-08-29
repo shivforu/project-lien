@@ -42,9 +42,9 @@ The workflow logic, state tracking, and audit trail are real; the outside world 
   runs on a timer, not on demand — nobody clicks a button to make the worker do its job.
 
 All three need to be running for anything to work. Ask engineering to start them with
-`pnpm dev` (web: **http://localhost:3000**, API: http://localhost:4000 — you generally won't
-call the API directly except where this doc tells you to, since several real actions in this
-build only exist as API calls, not buttons).
+`pnpm dev` (web: **http://localhost:3000**, API: http://localhost:4000 — the whole package
+lifecycle is now clickable from the web console, per section 5, so you'll mostly stay there;
+the API is worth calling directly for scripting or the handful of cases this doc points out).
 
 ## 3. How to get in
 
@@ -55,7 +55,7 @@ Log in at **http://localhost:3000/login**. Three seeded accounts exist, all pass
 |---|---|---|
 | `admin@demo-title-escrow.example` | ORG_ADMIN | Everything, including the audit log. |
 | `operator@demo-title-escrow.example` | OPERATOR | The day-to-day work — create/submit/resubmit/cancel packages, resolve exceptions — but can't view the audit log. |
-| `viewer@demo-title-escrow.example` | VIEWER | Read-only. Every write action is rejected by the API even if a button doesn't visibly disable itself. |
+| `viewer@demo-title-escrow.example` | VIEWER | Read-only. The web console won't even show you a write-action button, and the API rejects every one of them anyway (403) if you call it directly. |
 
 All three belong to the same seeded organization ("Demo Title & Escrow Co.") and see the
 same data — only what they're allowed to *do* differs. That makes this a good way to confirm
@@ -136,26 +136,29 @@ notarization — see `docs/DECISIONS.md` D34, and section 11 below for the full 
 
 ## 5. Every screen in the web console — what's clickable, what's just a picture
 
-This UI is deliberately minimal. Across the entire app there are exactly **three**
-interactive things: the login form, two buttons on the Exceptions page, and the lookup form
-on the Jurisdictions page. Everything else is read-only display. Knowing this up front will
-save you time — don't go looking for a "submit" button on the package detail page; it
-doesn't exist, because that action is API-only in this build (see section 6).
+As of `docs/DECISIONS.md` D35, the full package lifecycle — create, pre-flight, the
+dev-only signature/notary shortcut, submit, resubmit, resolve, cancel — is clickable
+end to end on the package detail page, not just callable via `curl`. Everything else in
+the console is still read-only display.
 
 | Page | URL | What's there | Interactive? |
 |---|---|---|---|
 | Home | `/` | Landing page, nav links only. | No |
-| Queue | `/queue` | Table of all packages: identifier, status, jurisdiction, deadline. Click a row to open its detail page. | Row links only — no filtering, sorting, or bulk actions yet. |
-| Package detail | `/queue/<id>` | One package's full field set: status, document type, jurisdiction, county tracking number, recorded instrument number if recorded. | No — pure read-only. No document viewer, no action buttons, no event timeline (all three are tracked as not-yet-built, `docs/REQUIREMENTS_MATRIX.md` #28). |
-| Exceptions | `/exceptions` | Two lists: packages needing operator attention (rejected / resubmission-required) and dead-lettered background jobs. | **Yes** — a "Resolve" button per package exception and a "Retry" button per dead-lettered job. These are the only real write actions anywhere in the web UI. |
+| Queue | `/queue` | Table of all packages: identifier, status, jurisdiction, deadline. Click a row to open its detail page. | A "+ New package" button (hidden for VIEWER) opens the create form; row links only otherwise — no filtering, sorting, or bulk actions yet. |
+| New package | `/queue/new` | A form: package identifier, plus a dropdown of the 5 seeded loan/property pairs (there's still no way to create a *new* loan or property — see section 10). Each option is labeled with what actually happens if you pick it (which ones reach a real happy path, which hit the trustee or MANUAL-network gaps). | Yes — submitting creates a real package and takes you straight to its detail page. |
+| Package detail | `/queue/<id>` | One package's full field set, plus an **Actions** section. | **Yes.** The buttons shown depend on the package's current status (only a legal next step is ever offered) and your role: "Run pre-flight" (DRAFT/PREFLIGHT_FAILED/VALIDATING), the dev-only "⚠ Skip signature/notary" shortcut (READY, ORG_ADMIN only, with a confirmation dialog explaining what it is), "Submit" (READY_TO_SUBMIT), "Resolve → move to resubmission" (REJECTED), "Resubmit" (RESUBMISSION_REQUIRED), and "Cancel package" (any non-terminal status). VIEWER sees a plain read-only notice instead of any button. A document viewer with pre-flight overlay and a workflow-event timeline (`docs/REQUIREMENTS_MATRIX.md` #28) are still not built. |
+| Exceptions | `/exceptions` | The same two lists (packages needing attention, dead-lettered jobs) as a dedicated triage view. | Yes — "Resolve"/"Retry" buttons here do the same thing the package detail page's own buttons now also do; this page is for scanning everything needing attention at once rather than the only place to act. |
 | Jurisdictions | `/jurisdictions` | Look up any state's recording rules (document type, deadline, penalty, trustee/notary requirements). Shows a yellow "demo/seed data, not verified legal research" banner. | Yes — a lookup form (state code + optional county). Doesn't change data. |
 | Integrations | `/integrations` | Health status of the 3 mock eRecording vendors plus LOS/storage stub connectors. | No — this is a stored value the worker last wrote, not a live health check ("This is a read model, not a live probe," per the code's own comment). |
 
-Everything that actually moves a package forward — create, run pre-flight, submit, resubmit,
-cancel — has no button anywhere in the web app. Those exist only as API calls. That's a real
-gap in the UI (`docs/REQUIREMENTS_MATRIX.md` #25/#26 — no operations dashboard with those
-actions has been built yet), not something hidden from you; you'll be using `curl` or
-Postman for a meaningful chunk of real testing, per section 6.
+Everything that actually moves a package forward — create, run pre-flight, the dev-only
+signature/notary shortcut, submit, resubmit, resolve, cancel — is now clickable on the
+package detail page, so you can drive the entire lifecycle from the browser end to end.
+There's still no dedicated operations dashboard with metrics tiles or a queue-wide bulk
+action bar (`docs/REQUIREMENTS_MATRIX.md` #25/#26 remain open), and every one of the
+endpoints in section 6 below still works directly via `curl`/Postman too, for scripting or
+for the one case the UI doesn't cover — the sole difference across the two paths is a real
+click versus a real HTTP call; the API enforces the same rules either way.
 
 ## 6. Every API endpoint (this is where the real actions live)
 
@@ -292,12 +295,29 @@ big signature/notary gap in section 4, but just as important to know up front:
 
 ## 11. How to actually see the full lifecycle behave, for real
 
-Given the gap in section 4, here are two ways to see every one of the 17 states happen for
-real rather than reading about them — both verified live while writing this doc, not just
-described in theory.
+Given the gap in section 4, here are three ways to see every one of the 17 states happen for
+real rather than reading about them — all three verified live while writing this doc, not
+just described in theory.
 
-**Option A — drive it yourself via the API.** This is the direct, self-serve path, and it's
-exactly how the walkthrough below was actually run and timed:
+**Option A — click through it in the web console (recommended for most testing).** Go to
+`/queue`, click "+ New package", pick one of the recommended jurisdictions (Texas, Florida,
+or New York — trustee not required), give it an identifier, and submit. You land on its
+detail page with a "Run pre-flight" button. Click it → READY. At READY, log in as
+`admin@demo-title-escrow.example` if you aren't already (the next button is ORG_ADMIN-only)
+and click "⚠ Skip signature/notary (dev only)" — a confirmation dialog explains what it's
+about to do before it does it. That lands you on READY_TO_SUBMIT, where "Submit" appears.
+Click it, then just watch the page (refresh every 10-15 seconds) — the real worker takes it
+from there: SUBMITTING → SUBMITTED → COUNTY_PROCESSING → RECORDED → RECONCILING →
+**COMPLETE**, no further clicks needed, in about 40 seconds. A REJECTED package
+(`REL-2026-0003` in the seed data, or one you get there via option B below) shows a
+"Resolve → move to resubmission" button instead, and a RESUBMISSION_REQUIRED one shows
+"Resubmit" — both real, both move the state machine for real. VIEWER accounts see a
+plain read-only notice instead of any button, and OPERATOR accounts see everything except
+the dev-only shortcut (matching the API's own role enforcement, not a separate UI-only
+rule).
+
+**Option B — drive it yourself via the API**, useful for scripting or for anything the UI
+doesn't expose a button for. This is exactly how the timings above were originally measured:
 
 1. Log in as `admin@demo-title-escrow.example` (the dev-shortcut endpoint in step 4 is
    ORG_ADMIN-only) and save the `accessToken`.
@@ -331,7 +351,7 @@ exactly how the walkthrough below was actually run and timed:
    `actor = 'DEV_TOOL'` and everything else `USER`/`SYSTEM` — a good sanity check that the
    shortcut isn't quietly polluting real audit data.
 
-**Option B — ask engineering to run the automated scenario suite**
+**Option C — ask engineering to run the automated scenario suite**
 (`apps/worker/src/e2e-scenarios.test.ts`, scenarios A–J, driven against a real Postgres, the
 real compiled API, and the real job-queue handlers — not a simplified stand-in). Better for
 seeing the *failure* paths (pre-flight rejection, vendor rejection + resubmission, a
@@ -376,10 +396,13 @@ this table as the reference for "what should happen," and the actual test file
   the session (confirm via a page refresh after logging out — you should be bounced to
   needing to log in again). Let a session sit idle past 15 minutes and confirm the failure
   mode is a clean error, not a crash.
-- **Roles**: log in as Viewer and try any write action (create, submit, resubmit, cancel,
-  resolve an exception) — every one should be rejected by the API (403), not just missing
-  from the UI. Confirm via the browser's network tab, not just what buttons you see.
-  Confirm Operator can do all of those but gets 403 on `/audit-events`.
+- **Roles**: log in as Viewer — the package detail page and Queue page should show no
+  action buttons at all (a plain read-only notice instead), and this is real client-side
+  mirroring of the API's own rule, not just cosmetic — confirm the underlying endpoints
+  still 403 a Viewer token directly (via the network tab or curl), since the UI hiding a
+  button is not itself the security boundary. Confirm Operator can do everything except
+  the dev-only signature/notary shortcut (ORG_ADMIN-only, both in the UI and at the API),
+  and gets 403 on `/audit-events`.
 - **Jurisdictions**: pick a few states with different rules (California's large daily
   penalty and trustee requirement; Missouri's unusually short 15-day deadline) and confirm
   the numbers match `packages/db/src/seed.ts`.
@@ -388,9 +411,10 @@ this table as the reference for "what should happen," and the actual test file
   detail page.
 - **Integrations**: all 3 eRecording vendors should show "Healthy"; LOS/storage rows show
   "Unknown" (expected — interface stubs, not wired to anything real).
-- **The real API actions** (section 6): since most of these have no UI button, exercise them
-  directly — creation, pre-flight (including a trustee-required state to confirm it blocks
-  correctly), resubmission, cancellation, and the exception-resolve/retry actions.
+- **The full lifecycle** (section 11): walk a package through creation, pre-flight
+  (including a trustee-required state to confirm it correctly blocks forever), the
+  dev-only shortcut, submission, and on to COMPLETE — either by clicking through the UI or
+  calling the API directly; both paths are real and worth trying at least once each.
 - **General**: browser back/forward, page refresh mid-session, window resizing — this UI
   hasn't had a dedicated accessibility/responsive pass, so rough edges here are useful
   findings, not something to assume is already covered.

@@ -924,3 +924,56 @@ gap, section 6's endpoint table calls it out as deliberately excluded from the r
 and section 11's walkthrough was rewritten around the actual verified run above (replacing
 the previous "ask engineering to hand-edit the database" instruction) with real timing
 (~40s) instead of an estimated range.
+
+## D35: wired the entire package lifecycle — create, pre-flight, the D34 dev shortcut, submit, resubmit, resolve, cancel — as real buttons on the package detail page, for a proof-of-concept demo
+
+**Decision:** Everything through D34 made the lifecycle *possible* to exercise, but only via
+`curl`/Postman — the project owner's stated goal is presenting this as a proof of concept,
+which means clicking through it needs to actually work, not just be explainable in a
+terminal. Added:
+- `apps/web/app/queue/new/page.tsx` — a create-package form. `POST /releases` requires an
+  existing `loanId`/`propertyId` and this build still has no endpoint to create either
+  (docs/QE_QUICKSTART.md #10), so the form's picker is the 5 seeded loan/property pairs,
+  hardcoded from `packages/db/src/seed.ts` (there's no GET /loans or GET /properties to
+  populate it from) — each option's label states plainly what happens if you pick it
+  (Texas/Florida/New York reach a real happy path; California always fails pre-flight,
+  trustee required; Georgia's MANUAL network gets permanently stuck), so the form doesn't
+  set someone up to be confused two clicks later.
+- An **Actions** section on `apps/web/app/queue/[id]/page.tsx`: buttons for pre-flight, the
+  D34 dev-only signature/notary shortcut (ORG_ADMIN-only, with a `window.confirm` explaining
+  what it is before it runs), submit, resolve (REJECTED → RESUBMISSION_REQUIRED, via
+  `POST /exceptions/:id/resolve` — the only endpoint that performs that specific hop),
+  resubmit, and cancel. Which buttons render depends on the package's current status (only
+  ever offers a legal next step) and the caller's role — VIEWER sees a plain read-only
+  notice instead of buttons, matching the API's own enforcement rather than a separate
+  UI-only permission model. This is also the fix for the earlier-reported "I see the same
+  options in every role" gap, as a side effect of building this the right way.
+- A "+ New package" link on the Queue page, hidden for VIEWER.
+
+**Why:** Built, then verified with a real (headless, but real — Chromium via Playwright, not
+a mock DOM) browser against the actual running dev stack, since a proof-of-concept demo is
+exactly the kind of deliverable that must be seen actually working, not just typechecked.
+Scripted the entire flow through real clicks: logged in as admin, clicked "+ New package",
+picked Texas, submitted, landed on the new package's detail page (DRAFT), clicked "Run
+pre-flight" (→ READY), clicked the dev shortcut and accepted its confirm dialog (→
+READY_TO_SUBMIT), clicked "Submit", then polled the page every 10 seconds and watched it
+progress SUBMITTED → COUNTY_PROCESSING → COMPLETE with no further interaction, in the same
+~40 seconds D34 measured via the API directly — proving the UI path and the API path
+exercise the identical real backend, not two different code paths that could silently
+diverge. That first run caught a real bug before it shipped: `/submit`'s response shape is
+`{ packageId, jobId, status: "SUBMIT_QUEUED" }`, not a full package record, and the action
+handler had been trusting every action's response as the new `PackageDetail` — after
+Submit specifically, the page briefly rendered `undefined / undefined` state/county and an
+`Invalid Date`. Fixed by having every action re-fetch the canonical record from
+`GET /releases/:id` afterward instead of trusting each endpoint's own response shape, then
+re-ran the same script clean. Separately verified with two more scripted runs: a VIEWER
+session shows zero action buttons anywhere (Queue's "+ New package" link and the package
+detail actions both absent) while an OPERATOR session on the same REJECTED seeded package
+(`REL-2026-0003`) sees "Resolve → move to resubmission" and "Cancel package" — confirmed by
+inspection only, deliberately not clicked, so as not to mutate the demo seed data's intended
+REJECTED fixture; and a READY package viewed as OPERATOR shows an explanatory note in place
+of the dev-shortcut button while the same package viewed as ORG_ADMIN shows the real button,
+confirming the role gate matches the API's ORG_ADMIN-only enforcement exactly. `pnpm
+typecheck`/`lint` clean for `apps/web`. `docs/QE_QUICKSTART.md` section 5's page table and
+several other sections (2, 3, 11, 14) rewritten to describe the UI as it now actually
+behaves rather than the API-only workflow that preceded this decision.

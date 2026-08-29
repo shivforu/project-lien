@@ -17,6 +17,7 @@
     "@project-lien/shared-types": "workspace:*",
     "@project-lien/domain-jurisdiction": "workspace:*",
     "@project-lien/domain-fees": "workspace:*",
+    "@project-lien/domain-workflow": "workspace:*",
     "express": "^4.21.0",
     "helmet": "^7.1.0",
     "cors": "^2.8.5",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Kysely } from "kysely";
 import type { Database } from "@project-lien/db";
 import { calculateStatutoryDeadline, findCountyRule, findStateRule, resolveJurisdictionRule } from "@project-lien/domain-jurisdiction";
+import { recordAuditEvent } from "@project-lien/domain-workflow";
 import { requireRole, type AuthenticatedRequest } from "../auth/middleware.js";
 import { asyncHandler } from "../async-handler.js";
 
@@ -136,6 +137,16 @@ export function createPackagesRouter(db: Kysely<Database>): Router {
       .insertInto("workflow_events")
       .values({ package_id: created.id, from_status: null, to_status: "DRAFT", actor: "USER", reason: "Package created", metadata: null })
       .execute();
+
+    await recordAuditEvent(db, {
+      organizationId: req.auth!.organizationId,
+      actorType: "USER",
+      actorUserId: req.auth!.sub,
+      action: "package.created",
+      entityType: "recording_package",
+      entityId: created.id,
+      details: { packageIdentifier: created.package_identifier },
+    });
 
     res.status(201).json({ data: created });
   }));

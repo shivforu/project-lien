@@ -195,3 +195,36 @@ package's build/test/runtime behavior (Jest/vitest-style test runners and some n
 packages still assume CJS by default) for no functional benefit at this project's current
 stage — worth revisiting deliberately in a later phase if there's a concrete reason to
 want native ESM output (e.g. top-level await, or a dependency that is ESM-only).
+
+## D15: Exception center resolution semantics (Phase 11)
+**Decision:** `POST /api/v1/exceptions/:id/resolve` does not attempt to auto-fix the
+underlying cause of a package rejection or a dead-lettered job. For a package, it
+advances exactly one step along the recovery path the state machine already defines
+(`REJECTED -> RESUBMISSION_REQUIRED -> VALIDATING`); for a dead-lettered job, it resets
+`status` to `QUEUED` with `attempts` zeroed and `last_error` cleared, giving it one more
+run through the worker's normal retry/backoff path. The `:id` namespace is shared between
+`recording_packages.id` and `workflow_jobs.id` (checked in that order) rather than using
+two separate endpoints, matching docs/API.md's single `/exceptions/:id/resolve` route.
+**Why:** An operator, not the system, decided the underlying issue (a county rejection
+reason, a permanently-broken vendor call) is actually resolved — the API's job is to
+re-enter the existing state machine / job queue safely (via `assertTransition` and the
+same columns the worker's queue uses), not to guess at a fix. Every resolution is
+recorded via `recordAuditEvent` (`exception.package_resolved` / `exception.job_resolved`),
+so the exception center itself is auditable.
+
+## D16: Integration connector health is a read model, not a live probe
+**Decision:** `GET /api/v1/integrations` reads `integration_connections.health` as last
+written — it does not call out to any vendor to check current status when the endpoint is
+hit. Demo rows are seeded once per organization in `packages/db/src/seed.ts` (checked via
+a lookup rather than a DB-level upsert, since no unique constraint exists on
+`(organization_id, vendor)`) for the three mock eRecording vendors this project actually
+has adapters for (`packages/adapters-erecording`), plus the LOS/TMS and document storage
+interface stubs (`packages/adapters-los`, `packages/adapters-storage`), both seeded with
+`health: 'UNKNOWN'` since they are interfaces only, with no adapter behind them yet
+(docs/REQUIREMENTS_MATRIX.md #34/#35).
+**Why:** A live health check per request would mean this endpoint's latency and
+reliability depend on N vendor round-trips, and there is no real vendor to call in this
+project's mocked-integration architecture (docs/EXTERNAL_DEPENDENCIES.md) — `health`
+values here are illustrative of what a future adapter-driven health-check job would write,
+not a live signal. This keeps the same "documented gap, not a fabricated capability"
+posture as the mock eRecording adapters themselves.

@@ -11,3 +11,4 @@ export * from "./state-machine.js";
 export * from "./backoff.js";
 export * from "./job-queue.js";
 export * from "./webhook-dispatch.js";
+export * from "./audit-log.js";

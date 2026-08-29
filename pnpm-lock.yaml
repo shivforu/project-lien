@@ -44,6 +44,9 @@ importers:
       '@project-lien/domain-jurisdiction':
         specifier: workspace:*
         version: link:../../packages/domain-jurisdiction
+      '@project-lien/domain-workflow':
+        specifier: workspace:*
+        version: link:../../packages/domain-workflow
       '@project-lien/shared-config':
         specifier: workspace:*
         version: link:../../packages/shared-config

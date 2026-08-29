@@ -6,6 +6,7 @@ import type { Env } from "@project-lien/shared-config";
 import { verifyPassword } from "../auth/password.js";
 import { signAccessToken, signRefreshToken } from "../auth/jwt.js";
 import { asyncHandler } from "../async-handler.js";
+import { recordAuditEvent } from "@project-lien/domain-workflow";
 
 const loginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
 
@@ -42,6 +43,16 @@ export function createAuthRouter(db: Kysely<Database>, env: Env): Router {
     }
 
     const claims = { sub: user.id, organizationId: membership.organization_id, role: membership.role };
+
+    await recordAuditEvent(db, {
+      organizationId: membership.organization_id,
+      actorType: "USER",
+      actorUserId: user.id,
+      action: "auth.login",
+      entityType: "user",
+      entityId: user.id,
+    });
+
     res.status(200).json({
       accessToken: signAccessToken(claims, env.JWT_ACCESS_SECRET),
       refreshToken: signRefreshToken(claims, env.JWT_REFRESH_SECRET),

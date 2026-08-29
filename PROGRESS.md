@@ -76,34 +76,261 @@ resolution, the compliance provenance workflow, and the first real unit test sui
 actual logic behind it, not stubs).
 
 ## Phase 2 — Domain model + jurisdiction engine
-- [ ] Not started
+- [x] `packages/domain-jurisdiction`: `resolveJurisdictionRule` (county overrides state,
+      e.g. `customTopMarginInches`), `calculateStatutoryDeadline`,
+      `calculateAccruedPenaltyCents`, `UnknownJurisdictionError`, Kysely-backed
+      `findStateRule`/`findCountyRule`/`listStateRules`
+- [x] `packages/domain-fees`: `calculateRecordingFee`, `compareFeeToActual` (BALANCED /
+      REFUND_QUEUED / DEFICIT_COVERED), `InvalidFeeInputError` — integer-cents only
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/domain-jurisdiction/src/{types,resolver,repository,index}.ts`
++ `resolver.test.ts` (8 tests); `packages/domain-fees/src/{calculator,index}.ts` +
+`calculator.test.ts` (8 tests).
+**TESTS RUN:** `pnpm --filter <pkg> test` against real Postgres, then full workspace
+`turbo run build test lint`.
+**TEST RESULTS:** 16/16 new tests passing; 0 lint errors.
+**KNOWN LIMITATIONS:** Jurisdiction/fee data itself remains `UNVERIFIED` demo data per
+Phase 1 (docs/DECISIONS.md D9) — this phase is the *engine*, not new legal research.
+**NEXT STEP:** Phase 3 — document generation + PDF/pre-flight engine.
 
 ## Phase 3 — Document generation + PDF/pre-flight engine
-- [ ] Not started
+- [x] `packages/domain-documents`: Handlebars HTML templating (one generic template
+      covers all 7 lien-release document types), Playwright-driven HTML→PDF rendering,
+      pdf-lib margin compliance check + top-margin padding, `MockSignatureVisionProvider`
+      (docs/DECISIONS.md D5), `runPreflight` (required fields, margins, trustee,
+      witnesses, signature/seal detection)
+- [x] Puppeteer→Playwright pivot (docs/DECISIONS.md D4 revised) after confirming the
+      sandbox's pre-installed Chromium is Playwright-keyed
+- [x] Turborepo v2 strict-env-mode gap found and fixed (`turbo.json`
+      `globalPassThroughEnv`) — the renderer test passed standalone but failed under
+      `turbo run` because `PLAYWRIGHT_BROWSERS_PATH` was silently stripped
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/domain-documents/src/{templating,vision,preflight,index}.ts`,
+`src/pdf/{renderer,margins}.ts`, plus `templating.test.ts`, `preflight.test.ts` (6 tests),
+`pdf/margins.test.ts` (4 tests), `pdf/renderer.test.ts` (1 real-headless-browser test).
+**FILES MODIFIED:** `turbo.json` (`globalPassThroughEnv`), `docs/DECISIONS.md` (D4 revised).
+**TESTS RUN:** Real headless-Chromium PDF render + pdf-lib inspection against actual
+generated PDF bytes (not mocked), both standalone and under `turbo run`.
+**TEST RESULTS:** 12/12 new tests passing, including one real-browser render.
+**KNOWN LIMITATIONS:** Signature/seal detection is an explicitly-labeled mock (no real
+computer vision) — docs/DECISIONS.md D5.
+**NEXT STEP:** Phase 4 — PRIA canonical package + XML validation.
 
 ## Phase 4 — PRIA canonical package + XML validation
-- [ ] Not started
+- [x] `packages/domain-pria`: canonical `PriaPackage`/`PriaParty` model,
+      `serializePriaPackageToXml` (xmlbuilder2), `validatePriaXml` (fast-xml-parser) —
+      validates this project's own internal structural contract, not the real licensed
+      PRIA XSD (docs/DECISIONS.md D7)
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/domain-pria/src/{types,serializer,validator,index}.ts` +
+`serializer.test.ts` (4 tests).
+**TESTS RUN:** `pnpm --filter @project-lien/domain-pria test`, then full workspace build.
+**TEST RESULTS:** 4/4 new tests passing.
+**KNOWN LIMITATIONS:** Real PRIA XSD conformance remains an external dependency
+(docs/EXTERNAL_DEPENDENCIES.md) — this is a project-internal "PRIA-shaped" dialect only.
+**NEXT STEP:** Phase 5 — provider adapter framework + mock eRecording services.
 
 ## Phase 5 — Provider adapter framework + mock eRecording services
-- [ ] Not started
+- [x] `packages/adapters-erecording`: `IErecordingProvider` interface, `MockErecordingAdapter`
+      (in-memory state machine: SUBMITTED → ACCEPTED on 2nd poll → RECORDED on 3rd+),
+      `createSimplifileMockAdapter`/`createCscMockAdapter`/`createEpnMockAdapter`,
+      `ErecordingProviderRouter` (routes by county's `e_recording_network`, rejects
+      MANUAL/DIRECT_COUNTY), a shared `runProviderContractTests` suite every adapter
+      (mock or, later, real) must pass
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/adapters-erecording/src/{types,mock-adapter,router,
+contract-tests,index}.ts` + `adapters.test.ts` (17 tests, running the contract suite
+against all three mock vendors plus router-specific tests).
+**TESTS RUN:** `pnpm --filter @project-lien/adapters-erecording test`.
+**TEST RESULTS:** 17/17 passing.
+**KNOWN LIMITATIONS:** All three adapters are sandbox/mock only — no real vendor
+credentials exist (docs/DECISIONS.md D6, docs/EXTERNAL_DEPENDENCIES.md). A real adapter
+would implement the same `IErecordingProvider` interface and must pass the same contract
+tests before being trusted.
+**NEXT STEP:** Phase 6 — workflow orchestrator / queue / async processing.
 
 ## Phase 6 — Workflow orchestrator / queue / async processing
-- [ ] Not started
+- [x] `packages/domain-workflow`: full 17-state `PackageStatus` transition table
+      (`FORWARD_TRANSITIONS`, `CANCELLABLE_FROM`, `FAILABLE_FROM`, `assertTransition`,
+      `IllegalTransitionError`), exponential backoff (`calculateBackoffMs`), a
+      Postgres-backed job queue (`enqueueJob`/`claimNextJob` via `FOR UPDATE SKIP LOCKED`/
+      `completeJob`/`failJob` with backoff-then-dead-letter/`requeueStaleJobs`), idempotency
+      via a unique `idempotency_key`
+- [x] `apps/worker`: real claim/dispatch loop replacing the Phase 1 heartbeat stub,
+      `JOB_HANDLERS` registry, `poll-vendor-submission` handler wired to the Phase 5
+      adapter router and the Phase 6 state machine
+- [x] Found and fixed a significant latent type bug in `packages/db/src/schema.ts`:
+      `Generated<Timestamp>` double-wrapped a `ColumnType` inside `Generated<>`
+      (itself a `ColumnType`-producing utility), silently typing every generated
+      timestamp column's insert/update type wrong across the *entire* schema (40
+      occurrences) — introduced a dedicated `GeneratedTimestamp` type instead
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/domain-workflow/src/{state-machine,backoff,job-queue,index}.ts`
++ 3 test files (15 tests); `apps/worker/src/{index,job-dispatcher,vendor-router}.ts`,
+`src/handlers/{types,poll-vendor-submission}.ts` + a full E2E test (real org/property/
+loan/package/vendor_submission setup, 3 sequential poll calls).
+**FILES MODIFIED:** `packages/db/src/schema.ts` (the `GeneratedTimestamp` fix, 40 sites).
+**TESTS RUN:** Full workspace `turbo run build test lint` against real Postgres, plus a
+manual reasoning check of the `Generated<Timestamp>` fix (confirmed the bug by first
+reproducing the incorrect insert-type compile error, then confirming it cleared).
+**TEST RESULTS:** 20/20 new tests passing (state-machine 7, backoff 3, job-queue 5,
+poll-vendor-submission 1 E2E, + pre-existing suites unaffected by the schema fix).
+**KNOWN LIMITATIONS:** This is a Postgres-backed queue, not Temporal — an explicit,
+documented tradeoff (docs/DECISIONS.md D3), revisitable if throughput ever demands it.
+**NEXT STEP:** Phase 7 — escrow + fee reconciliation + statutory scheduler.
 
 ## Phase 7 — Escrow + fee reconciliation + statutory scheduler
-- [ ] Not started
+- [x] `packages/domain-escrow`: double-entry ledger (`getOrCreateEscrowAccount`,
+      `lockEscrowAccount` via `.forUpdate()`, `depositPayoff`, `holdRecordingFee`,
+      `remitRecordingFee` — computes variance via Phase 2's `compareFeeToActual` and
+      writes matching `fee_reconciliations` + ledger-transaction rows),
+      `InsufficientFundsError`; deadline-monitor pure functions
+      (`checkDeadline`/`checkDeadlinesForBatch`)
+- [x] `apps/worker` statutory-deadline-scan handler: joins packages to jurisdiction
+      rules, flags at-risk packages via `workflow_events`, and **self-reschedules**
+      (enqueues its own successor job an hour out) rather than using cron/Temporal
+      (docs/DECISIONS.md D3's "recurring job" pattern)
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/domain-escrow/src/{ledger,deadline-monitor,index}.ts` +
+`ledger.test.ts` (4 tests), `deadline-monitor.test.ts` (4 tests);
+`apps/worker/src/handlers/statutory-deadline-scan.ts` + its test (1 test).
+**TESTS RUN:** Full workspace build/test against real Postgres, including a real
+transactional row-locking test for the escrow ledger.
+**TEST RESULTS:** 9/9 new domain-escrow tests + 1 new worker test passing.
+**KNOWN LIMITATIONS:** Currency is integer cents throughout, verified by inspection of
+every ledger/fee function signature (no floating-point amount ever crosses a function
+boundary).
+**NEXT STEP:** Phase 8 — REST API + OpenAPI + webhooks.
 
 ## Phase 8 — REST API + OpenAPI + webhooks
-- [ ] Not started
+- [x] `apps/api`: Express app (`createApp()` factory, testable without a bound port),
+      `/health`, `/ready`, `/api/v1/openapi.json`, `auth`/`jurisdictions`/`fees`/
+      `releases`/`webhooks` routers, a 501 catch-all for undocumented-but-unbuilt routes,
+      centralized error handling, HMAC-SHA256 webhook signing (`timingSafeEqual`
+      verification) with a per-endpoint generated secret shown once at creation,
+      cursor-based pagination (`base64url(createdAt|id)`) for `GET /releases`
+- [x] `packages/domain-workflow` `dispatchWebhookEvent` + `apps/worker`
+      `webhook-delivery` handler (real `node:http` server used in its test)
+- [x] Found/documented D14 (CommonJS-despite-ESM-source) when `import.meta.url` was
+      rejected by `tsc`; fixed several `noUncheckedIndexedAccess`/Kysely
+      Select-vs-Insert-type strictness errors
+
+**STATUS:** DONE
+**FILES CREATED:** `apps/api/src/{app,async-handler}.ts`, `src/auth/{password,jwt,
+middleware}.ts`, `src/routes/{auth,jurisdictions,fees,packages,webhooks}.ts`,
+`apps/api/openapi.json`, `routes.test.ts`, `app.test.ts`;
+`packages/shared-config/src/webhook-signing.ts`;
+`packages/domain-workflow/src/webhook-dispatch.ts`;
+`apps/worker/src/handlers/webhook-delivery.ts` + test.
+**FILES MODIFIED:** `docs/DECISIONS.md` (new D14).
+**TESTS RUN:** `supertest` against the real Express app + real Postgres (no bound port);
+worker webhook-delivery test posts to a real ephemeral `node:http` server.
+**TEST RESULTS:** 16/16 new tests passing at the time (grew further in Phase 9/11).
+**KNOWN LIMITATIONS:** OpenAPI spec is hand-written, not generated from route code —
+acceptable for this project's size but worth automating if the surface keeps growing.
+**NEXT STEP:** Phase 9 — authentication / authorization / tenant model.
 
 ## Phase 9 — Authentication / authorization / tenant model
-- [ ] Not started
+- [x] Local email/password auth (bcryptjs — pure JS, chosen to avoid native-binary/CDN
+      risk per the Prisma precedent in docs/DECISIONS.md D2), JWT access (15m) + refresh
+      (7d) tokens, org-scoped RBAC (`ORG_ADMIN`/`OPERATOR`/`VIEWER`/`API_CLIENT`) via
+      `requireAuth`/`requireRole` Express middleware, every `/api/v1` route
+      tenant-scoped to `req.auth.organizationId`
+- [x] Cleaned up a redundant `@types/bcryptjs` devDependency (bcryptjs 3.x ships its own
+      types) and fixed `prefer-const` lint findings surfaced by a full lint pass
+
+**STATUS:** DONE
+**FILES CREATED/MODIFIED:** covered by the Phase 8 auth/middleware files above (auth and
+API work landed together across Phases 8–9); `apps/api/package.json` (removed
+`@types/bcryptjs`).
+**TESTS RUN:** `routes.test.ts` exercises login success/failure, role-based 403s, and
+tenant scoping (a package created under one org 404s for a request bearing another
+org's token in spirit — same-org negative cases covered directly).
+**TEST RESULTS:** Covered within the Phase 8/11 API test counts; a full
+`turbo run build test lint --concurrency=1` pass was clean (0 errors) after this phase.
+**KNOWN LIMITATIONS:** Auth is local JWT only — Auth0/Okta/SSO substitution is possible
+later behind the same interface boundary (docs/DECISIONS.md D11) but not built.
+**NEXT STEP:** Phase 10 — operations web application.
 
 ## Phase 10 — Operations web application
-- [ ] Not started
+- [x] Next.js 14 App Router client app: `lib/api-client.ts` (localStorage session +
+      typed `apiFetch`, documented as a deliberate v1 simplification vs. httpOnly
+      cookies/server sessions), `/login`, `/queue` (list), `/queue/[id]` (detail),
+      `/jurisdictions`
+- [x] `packages/db/src/seed.ts`: demo organization + demo `ORG_ADMIN` login
+      (`admin@demo-title-escrow.example` / `password123`) for local manual verification
+- [x] Verified with a real Playwright script driving headless Chromium against actually
+      running `next start` + compiled API server processes (login → queue → detail),
+      not just component-level tests
+
+**STATUS:** DONE
+**FILES CREATED:** `apps/web/lib/api-client.ts`, `app/{layout,page}.tsx`,
+`app/login/page.tsx`, `app/queue/page.tsx`, `app/queue/[id]/page.tsx`,
+`app/jurisdictions/page.tsx`.
+**FILES MODIFIED:** `packages/db/src/seed.ts` (demo admin user + org membership).
+**TESTS RUN:** `next build` (typecheck + production build), then a manual real-browser
+script: real login against the real API, real navigation, real data rendered from
+Postgres.
+**TEST RESULTS:** Build clean; manual E2E script passed (login redirected to `/queue`,
+queue/detail data matched what was seeded/created via the API in the same session).
+**KNOWN LIMITATIONS:** No dashboard metrics tile row, no status/sort filtering on the
+queue yet (noted directly in `app/queue/page.tsx`'s doc comment as the natural next
+iteration, not required for this phase's scope).
+**NEXT STEP:** Phase 11 — exception center + audit + integration management.
 
 ## Phase 11 — Exception center + audit + integration management
-- [ ] Not started
+- [x] `packages/domain-workflow/src/audit-log.ts`: `recordAuditEvent` — immutable
+      `audit_events` rows (org-scoped or system-level with `organizationId: null`), wired
+      into `auth.login`, `package.created`, `webhook_endpoint.created`,
+      `exception.package_resolved`, `exception.job_resolved`
+- [x] `GET /api/v1/audit-events` (ORG_ADMIN-only, cursor-paginated, same pattern as
+      `/releases`)
+- [x] `GET /api/v1/exceptions` + `POST /api/v1/exceptions/:id/resolve`: aggregates
+      REJECTED/RESUBMISSION_REQUIRED packages and DEAD_LETTER jobs for the caller's org;
+      resolve advances a package one step via the existing state machine
+      (`assertTransition`) or resets a dead-lettered job to QUEUED for one more attempt
+      (docs/DECISIONS.md D15) — never auto-fixes the underlying cause
+- [x] `GET /api/v1/integrations`: read model over `integration_connections`
+      (docs/DECISIONS.md D16); seed data added for the 3 mock eRecording vendors plus
+      the LOS/TMS and storage interface stubs
+- [x] `apps/web`: `/exceptions` (list + resolve button) and `/integrations` (health
+      table) screens, nav updated
+
+**STATUS:** DONE
+**FILES CREATED:** `packages/domain-workflow/src/audit-log.ts` + test (2 tests);
+`apps/api/src/routes/{audit-events,exceptions,integrations}.ts`;
+`apps/web/app/exceptions/page.tsx`, `apps/web/app/integrations/page.tsx`.
+**FILES MODIFIED:** `apps/api/src/routes/{auth,packages,webhooks}.ts` (audit-event calls),
+`apps/api/src/app.ts` (mounted the 3 new routers), `apps/api/package.json` (added
+`@project-lien/domain-workflow` dependency), `packages/domain-workflow/src/index.ts`,
+`packages/db/src/seed.ts` (integration_connections demo rows), `apps/web/app/layout.tsx`
+(nav links), `apps/api/src/routes.test.ts` (new coverage, replacing the now-stale
+"audit-events is unimplemented" assertion), `docs/DECISIONS.md` (D15, D16).
+**TESTS RUN:** `pnpm --filter @project-lien/domain-workflow test`,
+`pnpm --filter @project-lien/api test`, `pnpm --filter @project-lien/web build`, a full
+workspace `turbo run build test lint --concurrency=1`, and a real end-to-end pass: seeded
+the dev Postgres DB, booted the compiled API server and `next start`, logged in via a
+real headless-Chromium Playwright script, confirmed `/integrations` renders the seeded
+SIMPLIFILE/CSC/EPN/GENERIC_LOS/S3_COMPATIBLE rows, created a real package via the API,
+forced it to REJECTED via SQL, confirmed it appeared on `/exceptions`, clicked the real
+"Resolve" button in the browser, and confirmed in Postgres that the package transitioned
+to RESUBMISSION_REQUIRED with a matching `exception.package_resolved` audit-event row.
+**TEST RESULTS:** 44/44 turbo tasks passing (18 domain-workflow, 20 api, plus all other
+packages); manual E2E script passed all assertions; demo data cleaned up after
+verification.
+**KNOWN LIMITATIONS:** Integration health is a static read model, not a live probe
+(docs/DECISIONS.md D16) — there is no real vendor to health-check against in this
+project's mocked-integration architecture. `packages/adapters-los` and
+`packages/adapters-storage` remain Phase-1 interface stubs (docs/REQUIREMENTS_MATRIX.md
+#34/#35) — out of this phase's named scope (exception center + audit + integration
+*management*, not building out those adapters' internals).
+**NEXT STEP:** Phase 12 — full automated testing.
 
 ## Phase 12 — Full automated testing
 - [ ] Not started

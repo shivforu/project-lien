@@ -14,6 +14,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             Project Lien
           </a>
           <a href="/queue" style={navLinkStyle}>Queue</a>
+          <a href="/exceptions" style={navLinkStyle}>Exceptions</a>
+          <a href="/integrations" style={navLinkStyle}>Integrations</a>
           <a href="/jurisdictions" style={navLinkStyle}>Jurisdictions</a>
           <a href="/login" style={{ ...navLinkStyle, marginLeft: "auto" }}>Login</a>
         </nav>

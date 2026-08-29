@@ -184,6 +184,42 @@ export async function seed(): Promise<void> {
     .onConflict((oc) => oc.columns(["organization_id", "user_id"]).doNothing())
     .execute();
 
+  // Demo integration connections (docs/REQUIREMENTS_MATRIX.md #30 — connector health UI).
+  // These mirror the adapters this project actually has: the three mock eRecording
+  // vendors from packages/adapters-erecording (Phase 5), plus the LOS/TMS and document
+  // storage interface stubs (packages/adapters-los, packages/adapters-storage — both
+  // still interface-only, hence health UNKNOWN). No unique constraint exists on
+  // (organization_id, vendor), so this checks-then-inserts rather than upserting, to
+  // keep reseeding idempotent without a schema change.
+  console.log("[seed] Upserting demo integration connections...");
+  const integrationSeed: Array<{ connectorType: string; vendor: string; config: Record<string, unknown>; health: string }> = [
+    { connectorType: "ERECORDING", vendor: "SIMPLIFILE", config: { mode: "mock" }, health: "HEALTHY" },
+    { connectorType: "ERECORDING", vendor: "CSC", config: { mode: "mock" }, health: "HEALTHY" },
+    { connectorType: "ERECORDING", vendor: "EPN", config: { mode: "mock" }, health: "HEALTHY" },
+    { connectorType: "LOS_TMS", vendor: "GENERIC_LOS", config: { mode: "interface_only" }, health: "UNKNOWN" },
+    { connectorType: "STORAGE", vendor: "S3_COMPATIBLE", config: { mode: "interface_only" }, health: "UNKNOWN" },
+  ];
+  for (const conn of integrationSeed) {
+    const existing = await db
+      .selectFrom("integration_connections")
+      .select("id")
+      .where("organization_id", "=", orgId)
+      .where("vendor", "=", conn.vendor)
+      .executeTakeFirst();
+    if (existing) continue;
+    await db
+      .insertInto("integration_connections")
+      .values({
+        organization_id: orgId,
+        connector_type: conn.connectorType as never,
+        vendor: conn.vendor,
+        config: JSON.stringify(conn.config),
+        health: conn.health as never,
+        last_checked_at: new Date(),
+      })
+      .execute();
+  }
+
   console.log("[seed] Done.");
 }
 

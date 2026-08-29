@@ -184,9 +184,71 @@ describe("POST /api/v1/webhooks", () => {
   });
 });
 
+describe("GET /api/v1/audit-events", () => {
+  it("is ORG_ADMIN-only and records events from prior actions in this suite (e.g. auth.login)", async () => {
+    const forbidden = await request(app).get("/api/v1/audit-events").set("Authorization", `Bearer ${viewerToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const res = await request(app).get("/api/v1/audit-events").set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThan(0);
+    expect(res.body.data.some((e: { action: string }) => e.action === "auth.login")).toBe(true);
+    expect(res.body.data.some((e: { action: string }) => e.action === "package.created")).toBe(true);
+  });
+});
+
+describe("GET /api/v1/integrations", () => {
+  it("returns an empty list for an org with no seeded connections (this test org isn't the seeded demo org)", async () => {
+    const res = await request(app).get("/api/v1/integrations").set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+});
+
+describe("GET/POST /api/v1/exceptions", () => {
+  it("lists REJECTED/RESUBMISSION_REQUIRED packages and resolves one forward a step", async () => {
+    const g = global as { __testLoanId?: string; __testPropertyId?: string };
+    const created = await request(app)
+      .post("/api/v1/releases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ packageIdentifier: "PKG-API-EXC-1", loanId: g.__testLoanId, propertyId: g.__testPropertyId, stateCode: "CA", countyFips: "06037" });
+    expect(created.status).toBe(201);
+
+    const db = getDb();
+    await db.updateTable("recording_packages").set({ status: "REJECTED" }).where("id", "=", created.body.data.id).execute();
+
+    const listed = await request(app).get("/api/v1/exceptions").set("Authorization", `Bearer ${adminToken}`);
+    expect(listed.status).toBe(200);
+    expect(listed.body.data.packageExceptions.some((p: { id: string }) => p.id === created.body.data.id)).toBe(true);
+
+    const forbidden = await request(app)
+      .post(`/api/v1/exceptions/${created.body.data.id}/resolve`)
+      .set("Authorization", `Bearer ${viewerToken}`);
+    expect(forbidden.status).toBe(403);
+
+    const resolved = await request(app)
+      .post(`/api/v1/exceptions/${created.body.data.id}/resolve`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(resolved.status).toBe(200);
+    expect(resolved.body.data.status).toBe("RESUBMISSION_REQUIRED");
+  });
+
+  it("404s a resolve attempt on a package that isn't in an exception state", async () => {
+    const g = global as { __testLoanId?: string; __testPropertyId?: string };
+    const created = await request(app)
+      .post("/api/v1/releases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ packageIdentifier: "PKG-API-EXC-2", loanId: g.__testLoanId, propertyId: g.__testPropertyId, stateCode: "CA", countyFips: "06037" });
+
+    const res = await request(app).post(`/api/v1/exceptions/${created.body.data.id}/resolve`).set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("NOT_AN_EXCEPTION");
+  });
+});
+
 describe("unimplemented v1 routes", () => {
   it("returns 501 (not a bare 404) for a documented-but-unbuilt endpoint", async () => {
-    const res = await request(app).get("/api/v1/audit-events").set("Authorization", `Bearer ${adminToken}`);
+    const res = await request(app).get("/api/v1/payoffs/calculate").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(501);
     expect(res.body.error.code).toBe("NOT_IMPLEMENTED");
   });

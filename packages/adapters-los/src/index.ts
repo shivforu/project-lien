@@ -6,3 +6,6 @@
  * Built out in Phase 11 — see PROGRESS.md.
  */
 export const PACKAGE_NAME = "@project-lien/adapters-los";
+
+export * from "./types.js";
+export * from "./mock-connector.js";

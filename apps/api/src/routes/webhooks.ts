@@ -5,6 +5,7 @@ import type { Kysely } from "kysely";
 import type { Database } from "@project-lien/db";
 import type { AuthenticatedRequest } from "../auth/middleware.js";
 import { asyncHandler } from "../async-handler.js";
+import { recordAuditEvent } from "@project-lien/domain-workflow";
 
 const createEndpointSchema = z.object({
   url: z.string().url(),
@@ -41,6 +42,16 @@ export function createWebhooksRouter(db: Kysely<Database>): Router {
       })
       .returning(["id", "url", "subscribed_events", "is_active", "created_at"])
       .executeTakeFirstOrThrow();
+
+    await recordAuditEvent(db, {
+      organizationId: req.auth!.organizationId,
+      actorType: "USER",
+      actorUserId: req.auth!.sub,
+      action: "webhook_endpoint.created",
+      entityType: "webhook_endpoint",
+      entityId: created.id,
+      details: { url: created.url, subscribedEvents: created.subscribed_events },
+    });
 
     // The secret is only ever shown once, at creation — it is not returned by GET.
     res.status(201).json({ data: { ...created, secret } });

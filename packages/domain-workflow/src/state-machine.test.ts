@@ -28,6 +28,10 @@ describe("package state machine", () => {
     expect(canTransition("RESUBMISSION_REQUIRED", "VALIDATING")).toBe(true);
   });
 
+  it("allows a vendor to reject a submission directly, before county acceptance (E2E scenario C)", () => {
+    expect(canTransition("SUBMITTED", "REJECTED")).toBe(true);
+  });
+
   it("allows pre-flight failure to loop back to VALIDATING", () => {
     expect(canTransition("VALIDATING", "PREFLIGHT_FAILED")).toBe(true);
     expect(canTransition("PREFLIGHT_FAILED", "VALIDATING")).toBe(true);

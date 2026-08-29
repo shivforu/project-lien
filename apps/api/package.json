@@ -18,6 +18,8 @@
     "@project-lien/domain-jurisdiction": "workspace:*",
     "@project-lien/domain-fees": "workspace:*",
     "@project-lien/domain-workflow": "workspace:*",
+    "@project-lien/domain-documents": "workspace:*",
+    "@project-lien/domain-pria": "workspace:*",
     "express": "^4.21.0",
     "helmet": "^7.1.0",
     "cors": "^2.8.5",

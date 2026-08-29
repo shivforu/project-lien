@@ -6,6 +6,11 @@ export interface SubmissionRequest {
   priaXml: string;
   documentPdfBase64: string;
   idempotencyKey: string;
+  /** The submitter's own estimated recording fee (integer cents), carried through so a
+   * mock/sandbox adapter can report a deterministic "actual" fee on RECORDED for
+   * fee-reconciliation testing (docs/REQUIREMENTS_MATRIX.md #18, scenarios H/I). Optional
+   * because a real vendor wouldn't need this echoed back to it. */
+  estimatedFeeCents?: number;
 }
 
 export interface SubmissionResult {
@@ -22,6 +27,10 @@ export interface PollResult {
   recordedPage?: string;
   recordedInstrumentNumber?: string;
   rejectionReason?: string;
+  /** The county's actual charged recording fee, in integer cents — only ever present when
+   * `status === "RECORDED"` and the request that started this submission carried
+   * `estimatedFeeCents`. */
+  actualFeeCents?: number;
 }
 
 /**

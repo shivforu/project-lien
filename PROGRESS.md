@@ -326,13 +326,100 @@ packages); manual E2E script passed all assertions; demo data cleaned up after
 verification.
 **KNOWN LIMITATIONS:** Integration health is a static read model, not a live probe
 (docs/DECISIONS.md D16) — there is no real vendor to health-check against in this
-project's mocked-integration architecture. `packages/adapters-los` and
-`packages/adapters-storage` remain Phase-1 interface stubs (docs/REQUIREMENTS_MATRIX.md
-#34/#35) — out of this phase's named scope (exception center + audit + integration
-*management*, not building out those adapters' internals).
+project's mocked-integration architecture. (`packages/adapters-los` and
+`packages/adapters-storage` were found to be stale Phase-1 stubs while working on this
+phase and were built out for real as part of it — see Phase 12 below — rather than left
+as-is, since their doc comments falsely claimed later-phase completion.)
 **NEXT STEP:** Phase 12 — full automated testing.
 
 ## Phase 12 — Full automated testing
+- [x] `packages/adapters-storage`: real `LocalFsDocumentStorage` (genuine `node:fs/promises`
+      I/O, path-traversal protection, content-type sidecar file) behind the pre-existing
+      `IDocumentStorage` interface, plus a shared `runDocumentStorageContractTests` suite
+      (mirroring the eRecording-adapter contract-test pattern) — closes a stale gap where
+      this package's doc comments claimed completion it didn't have
+- [x] `packages/adapters-los`: real in-memory `GenericMockLosConnector` behind the
+      pre-existing `ILosConnector` interface, plus a shared contract-test suite — same gap,
+      same fix
+- [x] `POST /api/v1/releases/:id/preflight`: first real wiring of Phase 3's document
+      renderer + pre-flight engine into an actual request (previously only unit-tested in
+      isolation) — renders real HTML/PDF, checks margins against the real bytes, runs
+      structural-only pre-flight (`vision: null` — docs/DECISIONS.md D17), transitions
+      DRAFT/PREFLIGHT_FAILED/VALIDATING -> READY or PREFLIGHT_FAILED
+- [x] `POST /api/v1/releases/:id/submit`, `/resubmit`, `/cancel`: the rest of the package
+      lifecycle's action endpoints, in `apps/api/src/routes/package-actions.ts`
+- [x] `apps/worker/src/handlers/submit-package.ts` (new `SUBMIT_PACKAGE` job): first real
+      wiring of Phase 4's PRIA serializer and Phase 5's eRecording adapters into the
+      lifecycle — renders the document, computes the fee estimate, auto-funds escrow
+      (docs/DECISIONS.md D17), serializes PRIA XML, submits to the resolved vendor adapter,
+      transitions SUBMITTING -> SUBMITTED/REJECTED, enqueues the first poll
+- [x] `apps/worker/src/handlers/reconcile-fee.ts` (new `RECONCILE_FEE` job): first real
+      wiring of Phase 6's escrow reconciliation logic into the lifecycle — RECORDED ->
+      RECONCILING -> COMPLETE, dispatches `fee.adjusted` when the outcome isn't BALANCED
+- [x] `apps/worker/src/handlers/poll-vendor-submission.ts`: fixed a real production bug
+      found while wiring this up for real — the handler never re-scheduled polling once a
+      package reached ACCEPTED/COUNTY_PROCESSING, so a package would get stuck forever
+      between vendor acceptance and county recording; now any non-terminal vendor status
+      (SUBMITTED or ACCEPTED) always re-enqueues another poll
+- [x] `apps/worker/src/handlers/statutory-deadline-scan.ts`: fixed two real bugs — it never
+      actually dispatched the required `deadline.at_risk` webhook, and it re-inserted a
+      duplicate `workflow_events` row on every scheduler tick regardless of whether
+      anything had changed; now dedupes on the package's last-recorded risk level (fires
+      once per risk-level escalation, not once per tick — E2E scenario G)
+- [x] `packages/domain-workflow/src/state-machine.ts`: fixed a real bug found by E2E
+      scenario C — `SUBMITTED -> REJECTED` was illegal (only `COUNTY_PROCESSING ->
+      REJECTED` was modeled), so a vendor rejecting a submission before county acceptance
+      dead-lettered the poll job instead of recording a normal rejection (docs/DECISIONS.md
+      D18)
+- [x] `apps/api/src/routes/package-actions.ts`: fixed a real bug found by E2E scenario C —
+      `/submit`'s idempotency key never varied across submission attempts of the same
+      package, so a legitimate resubmission after rejection could never enqueue a second
+      `SUBMIT_PACKAGE` job; now scoped per attempt (docs/DECISIONS.md D18). Also fixed
+      `/preflight` refusing to re-run from the `VALIDATING` status that `/resubmit` leaves a
+      package in (same doc).
+- [x] `apps/worker/src/e2e-scenarios.test.ts`: 8 of docs/TEST_STRATEGY.md's 10 named E2E
+      scenarios (A, B, C, D, F, H, I, J), driven against real Postgres, the real compiled
+      Express app (via supertest), and the real job-claim/dispatch/complete-or-fail loop
+      (`runNextJob` mirrors `processOneJob` from `src/index.ts` exactly, not a simplified
+      stand-in)
+
+**STATUS:** DONE (scenario E explicitly out of scope — see Known Limitations)
+**FILES CREATED:** `packages/adapters-storage/src/{types,local-fs-storage,contract-tests,
+local-fs-storage.test,index}.ts`; `packages/adapters-los/src/{types,mock-connector,
+contract-tests,mock-connector.test,index}.ts`; `apps/api/src/routes/package-actions.ts`;
+`apps/worker/src/handlers/{submit-package,reconcile-fee}.ts`;
+`apps/worker/src/e2e-scenarios.test.ts`.
+**FILES MODIFIED:** `packages/domain-documents/src/preflight.ts` (`vision` made nullable);
+`packages/adapters-erecording/src/{types,mock-adapter}.ts` (fee estimate/actual fields,
+`feeVarianceCents`/`rejectOnPollCount`/`throwOnPollCount` test hooks, removed dead
+`outcome` field); `packages/domain-workflow/src/state-machine.ts` (+test — `SUBMITTED ->
+REJECTED`); `apps/worker/src/handlers/poll-vendor-submission.ts` (continued polling past
+ACCEPTED); `apps/worker/src/handlers/statutory-deadline-scan.ts` (+test — real webhook
+dispatch, per-risk-level dedup); `apps/worker/src/job-dispatcher.ts` (registered the 2 new
+job types); `apps/api/src/app.ts` (mounted package-actions router); `apps/api/package.json`,
+`apps/worker/package.json` (new workspace deps); `apps/worker/vitest.config.ts`
+(`fileParallelism: false` + env block, needed once a test in this package started booting
+the real API app); `docs/DECISIONS.md` (D17, D18).
+**TESTS RUN:** `pnpm --filter @project-lien/domain-workflow test`,
+`pnpm --filter @project-lien/api test`, `pnpm --filter @project-lien/worker test`, a full
+workspace `pnpm turbo run build test lint --concurrency=1`.
+**TEST RESULTS:** 44/44 turbo tasks passing. `apps/worker`: 14/14 tests across 5 files,
+including all 8 new E2E scenarios (A successful recording, B pre-flight rejection, C county
+rejection + resubmission + exception-center recovery, D vendor-outage retry with real
+backoff, F duplicate-submission idempotency, H fee-overage refund, I fee-shortage
+deficit-covered, J crash-and-reclaim-mid-workflow). `apps/api`: 20/20. `domain-workflow`:
+19/19 (18 + 1 new state-machine case).
+**KNOWN LIMITATIONS:** Scenario E (duplicate inbound vendor/county webhook) is not
+exercised — this build only has an *outbound* webhook dispatcher
+(docs/REQUIREMENTS_MATRIX.md #22 stays IN_PROGRESS for exactly this reason); there is no
+inbound webhook receiver endpoint to send a duplicate payload to, so writing a test against
+different code and calling it scenario E would misrepresent coverage. The three Phase-12
+simplifications (structural-only pre-flight, no signature/notary capture feature, escrow
+auto-funding) are documented in docs/DECISIONS.md D17, not hidden by the tests that work
+around them.
+**NEXT STEP:** Phase 13 — security hardening + observability.
+
+## Phase 13 — Security hardening + observability
 - [ ] Not started
 
 ## Phase 13 — Security hardening + observability

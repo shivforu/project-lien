@@ -12,6 +12,7 @@ import { createAuthRouter } from "./routes/auth.js";
 import { createJurisdictionsRouter } from "./routes/jurisdictions.js";
 import { createFeesRouter } from "./routes/fees.js";
 import { createPackagesRouter } from "./routes/packages.js";
+import { createPackageActionsRouter } from "./routes/package-actions.js";
 import { createWebhooksRouter } from "./routes/webhooks.js";
 import { createAuditEventsRouter } from "./routes/audit-events.js";
 import { createExceptionsRouter } from "./routes/exceptions.js";
@@ -73,6 +74,7 @@ export function createApp(): Express {
   app.use("/api/v1/jurisdictions", createJurisdictionsRouter(db));
   app.use("/api/v1/fees", createFeesRouter(db));
   app.use("/api/v1/releases", createPackagesRouter(db));
+  app.use("/api/v1/releases", createPackageActionsRouter(db));
   app.use("/api/v1/webhooks", createWebhooksRouter(db));
   app.use("/api/v1/audit-events", createAuditEventsRouter(db));
   app.use("/api/v1/exceptions", createExceptionsRouter(db));

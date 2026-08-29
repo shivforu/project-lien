@@ -16,7 +16,12 @@ const FORWARD_TRANSITIONS: Record<PackageStatus, PackageStatus[]> = {
   PENDING_NOTARY: ["READY_TO_SUBMIT"],
   READY_TO_SUBMIT: ["SUBMITTING"],
   SUBMITTING: ["SUBMITTED"],
-  SUBMITTED: ["COUNTY_PROCESSING"],
+  // REJECTED is reachable directly from SUBMITTED, not only from COUNTY_PROCESSING: a real
+  // vendor can bounce a submission before the county ever accepts it into processing (e.g.
+  // a document defect the vendor's own intake catches), so polling must be able to move a
+  // package straight from SUBMITTED to REJECTED without an intermediate COUNTY_PROCESSING
+  // state (docs/DECISIONS.md D17; surfaced by E2E scenario C).
+  SUBMITTED: ["COUNTY_PROCESSING", "REJECTED"],
   COUNTY_PROCESSING: ["REJECTED", "RECORDED"],
   REJECTED: ["RESUBMISSION_REQUIRED"],
   RESUBMISSION_REQUIRED: ["VALIDATING"],

@@ -24,6 +24,10 @@ beforeAll(async () => {
   await db.insertInto("county_jurisdiction_rules").values({ county_fips: "36047", state_code: "NY", county_name: "Kings" }).execute();
 
   const org = await db.insertInto("organizations").values({ name: "Test Org", slug: "test-org" }).returning("id").executeTakeFirstOrThrow();
+  await db
+    .insertInto("webhook_endpoints")
+    .values({ organization_id: org.id, url: "https://example.test/hook", secret: "s", subscribed_events: ["deadline.at_risk"] })
+    .execute();
   const property = await db
     .insertInto("properties")
     .values({ organization_id: org.id, parcel_number: "1", address_line1: "1 Main St", city: "Brooklyn", state_code: "NY", zip_code: "11201", county_fips: "36047", county_name: "Kings" })
@@ -53,15 +57,28 @@ afterAll(async () => {
 });
 
 describe("statutoryDeadlineScanHandler", () => {
-  it("logs a workflow_event only for the at-risk package, and reschedules itself", async () => {
+  it("logs a workflow_event and fires deadline.at_risk only for the at-risk package, and reschedules itself", async () => {
     await statutoryDeadlineScanHandler({}, { db, logger });
 
     const events = await db.selectFrom("workflow_events").selectAll().execute();
     expect(events.length).toBe(1);
     expect(events[0]?.reason).toContain("PAST_DEADLINE");
 
+    const deliveries = await db.selectFrom("webhook_deliveries").selectAll().where("event_type", "=", "deadline.at_risk").execute();
+    expect(deliveries.length).toBe(1);
+
     const rescheduled = await db.selectFrom("workflow_jobs").selectAll().where("job_type", "=", "STATUTORY_DEADLINE_SCAN").execute();
     expect(rescheduled.length).toBe(1);
     expect(rescheduled[0]?.status).toBe("QUEUED");
+  });
+
+  it("does not re-fire the workflow_event or webhook on a second tick at the same risk level (scenario G)", async () => {
+    await statutoryDeadlineScanHandler({}, { db, logger });
+
+    const events = await db.selectFrom("workflow_events").selectAll().execute();
+    expect(events.length).toBe(1); // still just the one from the first tick — no duplicate
+
+    const deliveries = await db.selectFrom("webhook_deliveries").selectAll().where("event_type", "=", "deadline.at_risk").execute();
+    expect(deliveries.length).toBe(1); // still just the one — not re-sent every tick
   });
 });

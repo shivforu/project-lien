@@ -5,14 +5,25 @@ import type { IErecordingProvider, PollResult, SubmissionRequest, SubmissionResu
 interface MockSubmissionState {
   packageId: string;
   pollCount: number;
-  /** Configurable via `MockErecordingAdapter`'s constructor — lets contract/unit tests
-   * force acceptance, rejection, or a multi-poll acceptance delay deterministically. */
-  outcome: "ACCEPT_AFTER_ONE_POLL" | "REJECT" | "ACCEPT_IMMEDIATELY";
+  estimatedFeeCents?: number;
 }
 
 export interface MockAdapterOptions {
   /** Simulates every submission for this test/run being rejected outright at submit time. */
   rejectAllSubmissions?: boolean;
+  /** Added to `estimatedFeeCents` (when the caller supplied one) to produce the "actual"
+   * fee reported on RECORDED — 0 (default) means the county always charges exactly the
+   * estimate; a positive value simulates a fee shortage, negative simulates an overage
+   * (docs/REQUIREMENTS_MATRIX.md #18, scenarios H/I). */
+  feeVarianceCents?: number;
+  /** If set, `pollStatus` returns REJECTED (a county rejection *after* the vendor already
+   * accepted the submission) on this specific poll call number, instead of progressing
+   * normally — simulates docs/TEST_STRATEGY.md scenario C. */
+  rejectOnPollCount?: number;
+  /** If set, `pollStatus` throws an Error on this specific poll call number instead of
+   * returning — simulates a vendor outage/timeout so the real job-queue retry/backoff
+   * path (docs/DECISIONS.md D3) handles it, per docs/TEST_STRATEGY.md scenario D. */
+  throwOnPollCount?: number;
 }
 
 /**
@@ -37,7 +48,7 @@ export class MockErecordingAdapter implements IErecordingProvider {
     this.submissions.set(vendorTrackingId, {
       packageId: request.packageId,
       pollCount: 0,
-      outcome: "ACCEPT_AFTER_ONE_POLL",
+      estimatedFeeCents: request.estimatedFeeCents,
     });
     return { vendorTrackingId, status: "SUBMITTED" };
   }
@@ -48,6 +59,13 @@ export class MockErecordingAdapter implements IErecordingProvider {
       return { vendorTrackingId, status: "REJECTED", rejectionReason: "Unknown vendor tracking id" };
     }
     state.pollCount += 1;
+
+    if (this.options.throwOnPollCount === state.pollCount) {
+      throw new Error(`Simulated vendor outage on poll #${state.pollCount}`);
+    }
+    if (this.options.rejectOnPollCount === state.pollCount) {
+      return { vendorTrackingId, status: "REJECTED", rejectionReason: "Simulated county rejection after acceptance" };
+    }
 
     if (state.pollCount === 1) {
       return { vendorTrackingId, status: "SUBMITTED" };
@@ -60,6 +78,8 @@ export class MockErecordingAdapter implements IErecordingProvider {
       status: "RECORDED",
       countyTrackingId: `CTY-${vendorTrackingId.slice(-8)}`,
       recordedInstrumentNumber: `INST-${vendorTrackingId.slice(-8)}`,
+      actualFeeCents:
+        state.estimatedFeeCents !== undefined ? state.estimatedFeeCents + (this.options.feeVarianceCents ?? 0) : undefined,
     };
   }
 }

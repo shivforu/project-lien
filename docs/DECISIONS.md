@@ -228,3 +228,71 @@ project's mocked-integration architecture (docs/EXTERNAL_DEPENDENCIES.md) — `h
 values here are illustrative of what a future adapter-driven health-check job would write,
 not a live signal. This keeps the same "documented gap, not a fabricated capability"
 posture as the mock eRecording adapters themselves.
+
+## D17: Phase 12 simplifications surfaced by wiring pre-flight/submission into real requests
+**Decision:** Phase 12 is the first point in this project where `POST /releases/:id/
+preflight` and `/submit` are called from a real HTTP request end to end (earlier phases
+only unit-tested the document/pre-flight/PRIA/vendor engines in isolation). Doing this for
+real surfaced three deliberate v1 simplifications, each left as a documented gap rather
+than a fabricated capability:
+1. **Structural-only pre-flight.** `PreflightInput.vision` is typed `VisionCheckResult |
+   null`; `POST /:id/preflight` always passes `null`. The state machine reaches
+   `READY` (via `VALIDATING`) *before* `PENDING_SIGNATURE`/`PENDING_NOTARY` — so no
+   signed/notarized document exists yet at the point pre-flight runs, and a vision check
+   for a signature or notary seal could never honestly pass. Pre-flight here checks only
+   what already exists: margins, required fields, and jurisdiction-specific structural
+   requirements (e.g. `TRUSTEE_MISSING`). A future phase that adds a real signature/notary
+   capture step would call `runPreflight` a second time, post-capture, with a real
+   `vision` result.
+2. **No signature/notary capture feature exists yet.** `advanceToReadyToSubmit` (test
+   helper, `apps/worker/src/e2e-scenarios.test.ts`) advances a package directly through
+   `PENDING_SIGNATURE -> PENDING_NOTARY -> READY_TO_SUBMIT` via direct SQL, matching what
+   production code actually does today for these two states (nothing) rather than
+   fabricating a fake capture UI/flow. Tracked as a real gap, not hidden by the test.
+3. **Escrow auto-funds from the loan's unpaid principal.** There is no "payoff received"
+   trigger modeled anywhere in this build, so `submit-package.ts` deposits
+   `max(0, estimatedFeeCents - currentBalanceCents)` into the package's escrow account
+   immediately before holding the recording fee, rather than requiring a real funds-receipt
+   event first.
+**Why:** Each of these is a real, load-bearing gap between this build and a production
+system — not incidental — so they're called out explicitly here (and referenced inline in
+code as "docs/DECISIONS.md D17") rather than silently working around them. All three are
+also called out in docs/REQUIREMENTS_MATRIX.md and PROGRESS.md under Phase 12.
+
+## D18: Three production bugs found only by testing the real request path, not mocks
+**Decision:** Writing true end-to-end tests (real Postgres, real compiled Express app via
+supertest, the same job-claim/dispatch/complete-or-fail loop `apps/worker/src/index.ts`
+runs in production) surfaced three genuine bugs that no prior unit test caught, because
+prior tests all called the underlying engines directly rather than going through the real
+request/job path. All three are now fixed:
+- **The state machine forbade a vendor from rejecting a submission before county
+  acceptance.** `FORWARD_TRANSITIONS.SUBMITTED` only allowed `COUNTY_PROCESSING`, but a
+  real vendor can bounce a submission at intake, before it's ever accepted into county
+  processing (E2E scenario C, `PKG-C`) — `poll-vendor-submission.ts` would then throw
+  `IllegalTransitionError` trying to move `SUBMITTED -> REJECTED` directly, dead-lettering
+  a normal rejection. Fixed by adding `REJECTED` to `SUBMITTED`'s allowed transitions in
+  `packages/domain-workflow/src/state-machine.ts`.
+- **A resubmission could never enqueue a second `SUBMIT_PACKAGE` job.** `POST /:id/submit`
+  used a single idempotency key, `submit-package-${packageId}`, for every submission
+  attempt of a package. Since `enqueueJob`'s dedup is `ON CONFLICT (idempotency_key) DO
+  NOTHING` — permanent, not per-attempt — a package rejected and then legitimately
+  resubmitted (E2E scenario C) could never get a new `SUBMIT_PACKAGE` job at all after its
+  first attempt; the resubmission would silently no-op. Fixed by scoping the key to the
+  attempt number (`submit-package-${packageId}-attempt-${N}`, where `N` is `1 +` the count
+  of existing `vendor_submissions` rows for the package) — two rapid duplicate requests for
+  the *same* attempt (E2E scenario F) still collide correctly, since neither has created a
+  `vendor_submissions` row yet when both are evaluated.
+- **`POST /:id/preflight` couldn't actually be re-run after a resubmission.** `POST
+  /:id/resubmit` transitions `RESUBMISSION_REQUIRED -> VALIDATING` and tells the caller to
+  call `/preflight` next, but `/preflight`'s own internal logic unconditionally tried to
+  transition `pkg.status -> VALIDATING` again — an illegal `VALIDATING -> VALIDATING`
+  self-transition once the package was already there. Fixed by adding `VALIDATING` to
+  `PREFLIGHT_STARTABLE_FROM` and skipping the redundant initial transition when the
+  package is already in `VALIDATING`.
+**Why:** This is exactly the scenario the "never claim something works without verifying"
+project mandate anticipates — engines that pass their own unit tests can still be wired
+together incorrectly, and only exercising the real request/job path end to end catches
+that class of bug. All three fixes are covered by `apps/worker/src/e2e-scenarios.test.ts`
+(scenario C for the first two, the full scenario suite for the third, since every scenario
+after A depends on `/preflight` and `/submit` behaving correctly from a non-DRAFT status
+at least once).

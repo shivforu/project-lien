@@ -21,7 +21,11 @@ export interface PreflightInput {
   trusteeName: string | null;
   witnessesRequired: number;
   witnessNames: string[];
-  vision: VisionCheckResult;
+  /** `null` when signature/notary-seal detection is not yet applicable at this pipeline
+   * stage (e.g. the structural pre-flight run before a document has been signed —
+   * docs/DECISIONS.md D17) — vision findings are skipped entirely rather than reported as
+   * a false BLOCKING failure. */
+  vision: VisionCheckResult | null;
   requiredFields: Record<string, string | null | undefined>;
 }
 
@@ -68,29 +72,31 @@ export async function runPreflight(input: PreflightInput): Promise<PreflightResu
     });
   }
 
-  if (!input.vision.signatureDetected) {
-    findings.push({
-      severity: "BLOCKING",
-      code: "SIGNATURE_NOT_DETECTED",
-      message: "No signature detected on the document",
-      pageNumber: null,
-    });
-  }
-  if (!input.vision.notarySealDetected) {
-    findings.push({
-      severity: "BLOCKING",
-      code: "NOTARY_SEAL_NOT_DETECTED",
-      message: "No notary seal detected on the document",
-      pageNumber: null,
-    });
-  }
-  if (input.vision.isMock) {
-    findings.push({
-      severity: "WARNING",
-      code: "VISION_CHECK_IS_MOCK",
-      message: "Signature/seal detection used a mock provider — see docs/EXTERNAL_DEPENDENCIES.md",
-      pageNumber: null,
-    });
+  if (input.vision) {
+    if (!input.vision.signatureDetected) {
+      findings.push({
+        severity: "BLOCKING",
+        code: "SIGNATURE_NOT_DETECTED",
+        message: "No signature detected on the document",
+        pageNumber: null,
+      });
+    }
+    if (!input.vision.notarySealDetected) {
+      findings.push({
+        severity: "BLOCKING",
+        code: "NOTARY_SEAL_NOT_DETECTED",
+        message: "No notary seal detected on the document",
+        pageNumber: null,
+      });
+    }
+    if (input.vision.isMock) {
+      findings.push({
+        severity: "WARNING",
+        code: "VISION_CHECK_IS_MOCK",
+        message: "Signature/seal detection used a mock provider — see docs/EXTERNAL_DEPENDENCIES.md",
+        pageNumber: null,
+      });
+    }
   }
 
   const passed = findings.every((f) => f.severity !== "BLOCKING");

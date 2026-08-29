@@ -271,6 +271,71 @@ describe("GET/POST /api/v1/exceptions", () => {
   });
 });
 
+describe("POST /api/v1/dev/releases/:id/advance-to-ready-to-submit", () => {
+  it("requires ORG_ADMIN — an OPERATOR-level or lower role is forbidden", async () => {
+    const g = global as { __testLoanId?: string; __testPropertyId?: string };
+    const created = await request(app)
+      .post("/api/v1/releases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ packageIdentifier: "PKG-API-DEV-1", loanId: g.__testLoanId, propertyId: g.__testPropertyId, stateCode: "CA", countyFips: "06037" });
+
+    const forbidden = await request(app)
+      .post(`/api/v1/dev/releases/${created.body.data.id}/advance-to-ready-to-submit`)
+      .set("Authorization", `Bearer ${viewerToken}`);
+    expect(forbidden.status).toBe(403);
+  });
+
+  it("409s when the package isn't READY yet", async () => {
+    const g = global as { __testLoanId?: string; __testPropertyId?: string };
+    const created = await request(app)
+      .post("/api/v1/releases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ packageIdentifier: "PKG-API-DEV-2", loanId: g.__testLoanId, propertyId: g.__testPropertyId, stateCode: "CA", countyFips: "06037" });
+    expect(created.body.data.status).toBe("DRAFT");
+
+    const res = await request(app)
+      .post(`/api/v1/dev/releases/${created.body.data.id}/advance-to-ready-to-submit`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe("ILLEGAL_TRANSITION");
+  });
+
+  it("walks a READY package to READY_TO_SUBMIT, recording each hop with actor DEV_TOOL", async () => {
+    const g = global as { __testLoanId?: string; __testPropertyId?: string };
+    const created = await request(app)
+      .post("/api/v1/releases")
+      .set("Authorization", `Bearer ${adminToken}`)
+      .send({ packageIdentifier: "PKG-API-DEV-3", loanId: g.__testLoanId, propertyId: g.__testPropertyId, stateCode: "CA", countyFips: "06037" });
+    const packageId = created.body.data.id;
+
+    const db = getDb();
+    await db.updateTable("recording_packages").set({ status: "READY" }).where("id", "=", packageId).execute();
+
+    const res = await request(app)
+      .post(`/api/v1/dev/releases/${packageId}/advance-to-ready-to-submit`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.status).toBe("READY_TO_SUBMIT");
+    expect(res.body.warning).toMatch(/dev-only/i);
+
+    const events = await db
+      .selectFrom("workflow_events")
+      .selectAll()
+      .where("package_id", "=", packageId)
+      .where("actor", "=", "DEV_TOOL")
+      .orderBy("created_at", "asc")
+      .execute();
+    expect(events.map((e) => e.to_status)).toEqual(["PENDING_SIGNATURE", "PENDING_NOTARY", "READY_TO_SUBMIT"]);
+
+    // And it's a real transition as far as the rest of the app is concerned — /submit now
+    // accepts it instead of 409ing.
+    const submit = await request(app)
+      .post(`/api/v1/releases/${packageId}/submit`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(submit.status).toBe(202);
+  });
+});
+
 describe("unimplemented v1 routes", () => {
   it("returns 501 (not a bare 404) for a documented-but-unbuilt endpoint", async () => {
     const res = await request(app).get("/api/v1/payoffs/calculate").set("Authorization", `Bearer ${adminToken}`);

@@ -18,6 +18,7 @@ import { createWebhooksRouter } from "./routes/webhooks.js";
 import { createAuditEventsRouter } from "./routes/audit-events.js";
 import { createExceptionsRouter } from "./routes/exceptions.js";
 import { createIntegrationsRouter } from "./routes/integrations.js";
+import { createDevToolsRouter } from "./routes/dev-tools.js";
 
 const logger = createLogger("api");
 
@@ -107,6 +108,9 @@ export function createApp(): Express {
   app.use("/api/v1/audit-events", createAuditEventsRouter(db));
   app.use("/api/v1/exceptions", createExceptionsRouter(db));
   app.use("/api/v1/integrations", createIntegrationsRouter(db));
+  // Dev/test-only shortcuts — not a real product feature, 404s in production
+  // (docs/DECISIONS.md D34).
+  app.use("/api/v1/dev", createDevToolsRouter(db, env));
 
   // Anything else on the versioned surface is honestly not implemented yet rather than
   // silently 404ing (docs/API.md lists the full target surface; this is the subset built

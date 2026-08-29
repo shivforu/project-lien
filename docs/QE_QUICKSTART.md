@@ -121,10 +121,18 @@ skip past it — a comment in that test file says so explicitly:
 **What this means for you:** if you run pre-flight successfully on a real package through the
 UI or API, it will reach **READY** and then just sit there. Calling `/submit` on it will
 always fail with a 409 error, because `/submit` requires the exact status
-`READY_TO_SUBMIT`, and nothing in the running app can get a package there. This is not
-something you need to file — it's tracked as a known gap (`docs/REQUIREMENTS_MATRIX.md`
-items #28 and the signature/notary capture flow generally). Section 8 below explains how to
-still exercise the rest of the lifecycle (submission through completion) for real.
+`READY_TO_SUBMIT`, and nothing that ships as a real feature can get a package there. This is
+not something you need to file — it's tracked as a known gap (`docs/REQUIREMENTS_MATRIX.md`
+item #28 and the signature/notary capture flow generally).
+
+**There is now a self-serve way through it, for testing purposes only:**
+`POST /api/v1/dev/releases/:id/advance-to-ready-to-submit` (ORG_ADMIN only, and only from
+status READY) walks a package through the three missing hops for you, so you can actually
+exercise submission → completion yourself instead of asking engineering to hand-edit the
+database. It is not a real feature and never will look like one: it 404s entirely on any
+production deployment, and every transition it performs is written to the audit trail with
+actor `DEV_TOOL` and a reason that says plainly this was a shortcut, not a real signature or
+notarization — see `docs/DECISIONS.md` D34, and section 11 below for the full walkthrough.
 
 ## 5. Every screen in the web console — what's clickable, what's just a picture
 
@@ -132,7 +140,7 @@ This UI is deliberately minimal. Across the entire app there are exactly **three
 interactive things: the login form, two buttons on the Exceptions page, and the lookup form
 on the Jurisdictions page. Everything else is read-only display. Knowing this up front will
 save you time — don't go looking for a "submit" button on the package detail page; it
-doesn't exist, because that action is API-only in this build (see section 8).
+doesn't exist, because that action is API-only in this build (see section 6).
 
 | Page | URL | What's there | Interactive? |
 |---|---|---|---|
@@ -147,7 +155,7 @@ Everything that actually moves a package forward — create, run pre-flight, sub
 cancel — has no button anywhere in the web app. Those exist only as API calls. That's a real
 gap in the UI (`docs/REQUIREMENTS_MATRIX.md` #25/#26 — no operations dashboard with those
 actions has been built yet), not something hidden from you; you'll be using `curl` or
-Postman for a meaningful chunk of real testing, per section 8.
+Postman for a meaningful chunk of real testing, per section 6.
 
 ## 6. Every API endpoint (this is where the real actions live)
 
@@ -161,9 +169,9 @@ server-side — VIEWER can call none of the write endpoints, no matter what a UI
 | `POST /auth/refresh` | none (valid refresh token) | Issues a fresh access+refresh token pair. Re-checks the user/role against the database each time, so a role change or deactivation takes effect immediately — not wired into the web app's UI, so you'd call this by hand if you want to test it. |
 | `GET /releases` | any authenticated role | Paginated list of your org's packages (cursor-based). |
 | `GET /releases/:id` | any authenticated role | One package's full record. |
-| `POST /releases` | ORG_ADMIN, OPERATOR | Creates a new package. Requires an existing `loanId` and `propertyId` — **there is no endpoint to create a loan or property**, so you must reuse one of the 5 seeded ones (IDs in section 9) or ask engineering to insert one directly. Idempotent: retrying with the same `packageIdentifier` returns the existing row instead of erroring. |
+| `POST /releases` | ORG_ADMIN, OPERATOR | Creates a new package. Requires an existing `loanId` and `propertyId` — **there is no endpoint to create a loan or property**, so you must reuse one of the 5 seeded ones (IDs in section 12) or ask engineering to insert one directly. Idempotent: retrying with the same `packageIdentifier` returns the existing row instead of erroring. |
 | `POST /releases/:id/preflight` | ORG_ADMIN, OPERATOR | Runs the structural pre-flight checks (see section 7) and moves the package to READY or PREFLIGHT_FAILED. Only legal from DRAFT, PREFLIGHT_FAILED, or VALIDATING. |
-| `POST /releases/:id/submit` | ORG_ADMIN, OPERATOR | Queues the real submission job. **Only works from READY_TO_SUBMIT** — which, per section 4, nothing in this build can currently produce through normal use. |
+| `POST /releases/:id/submit` | ORG_ADMIN, OPERATOR | Queues the real submission job. **Only works from READY_TO_SUBMIT** — which, per section 4, nothing else in this build can produce; see the dev-only shortcut below. |
 | `POST /releases/:id/resubmit` | ORG_ADMIN, OPERATOR | Only from RESUBMISSION_REQUIRED. Moves the package to VALIDATING and tells you to call `/preflight` next. |
 | `POST /releases/:id/cancel` | ORG_ADMIN, OPERATOR | Cancels from almost any non-terminal state. |
 | `GET /exceptions` | any authenticated role | The same two lists shown on the Exceptions page. |
@@ -174,6 +182,12 @@ server-side — VIEWER can call none of the write endpoints, no matter what a UI
 | `GET /integrations` | any authenticated role | The same data shown on the Integrations page. |
 | `GET /audit-events` | **ORG_ADMIN only** | Cursor-paginated audit log of every recorded action. Good endpoint to hit as Operator/Viewer to confirm the 403 role check. |
 | `GET/POST /webhooks` | ORG_ADMIN, OPERATOR (for POST) | Registers/lists outbound webhook endpoints for this org. The signing secret is shown once, at creation, and never again. Note: the docs elsewhere mention a deliveries list / redelivery endpoint — those are **not actually implemented**; only registration exists today. |
+
+One endpoint is deliberately not in the table above, because it isn't a real product
+feature: `POST /dev/releases/:id/advance-to-ready-to-submit` (ORG_ADMIN only, only from
+status READY, 404s in production) — a dev/test-only shortcut across the signature/notary
+gap in section 4. See section 11 for how and when to use it, and `docs/DECISIONS.md` D34
+for why it exists and why it's safe.
 
 ## 7. The background worker — things that happen with nobody clicking anything
 
@@ -266,7 +280,7 @@ big signature/notary gap in section 4, but just as important to know up front:
 - **You can't create a genuinely new loan or property through the app.** `POST /releases`
   requires an existing `loanId` and `propertyId`, and nothing in this build can create
   either one. To test package creation, reuse one of the 5 seeded loan/property pairs (IDs
-  in section 11) or ask engineering to insert a new one directly in the database.
+  in section 12) or ask engineering to insert a new one directly in the database.
 - **No automatic token refresh in the web app.** `/auth/refresh` exists and works, but
   nothing in the web UI calls it. A 15-minutes-idle session will start failing requests; the
   fix is logging out and back in, not a bug in whatever you were testing.
@@ -278,20 +292,17 @@ big signature/notary gap in section 4, but just as important to know up front:
 
 ## 11. How to actually see the full lifecycle behave, for real
 
-Given the gap in section 4, here are the two ways to see real workflow behavior rather than
-just static rows:
+Given the gap in section 4, here are two ways to see every one of the 17 states happen for
+real rather than reading about them — both verified live while writing this doc, not just
+described in theory.
 
-**Option A — ask engineering to run the automated scenario suite**
-(`apps/worker/src/e2e-scenarios.test.ts`, scenarios A–J, driven against a real Postgres, the
-real compiled API, and the real job-queue handlers — not a simplified stand-in). This is the
-canonical reference for what *should* happen at every step, including the failure paths.
-`docs/TEST_STRATEGY.md` lists what each lettered scenario covers.
+**Option A — drive it yourself via the API.** This is the direct, self-serve path, and it's
+exactly how the walkthrough below was actually run and timed:
 
-**Option B — drive it yourself via the API**, working around the two gaps above:
-
-1. Log in as operator, save the `accessToken`.
-2. Create a new package reusing a seeded Texas loan/property (trustee not required, real
-   CSC mock vendor) so it can actually reach submission:
+1. Log in as `admin@demo-title-escrow.example` (the dev-shortcut endpoint in step 4 is
+   ORG_ADMIN-only) and save the `accessToken`.
+2. Create a new package reusing the seeded Texas loan/property (trustee not required, real
+   CSC mock vendor, so nothing blocks it later):
    ```
    POST /api/v1/releases
    { "packageIdentifier": "QE-TEST-001",
@@ -299,16 +310,33 @@ canonical reference for what *should* happen at every step, including the failur
      "propertyId": "00000000-0000-0000-0000-100000000002",
      "stateCode": "TX", "countyFips": "48085" }
    ```
-3. `POST /releases/:id/preflight` — should return `passed: true` and move the package to
-   READY (Texas doesn't require a trustee, so nothing blocks it).
-4. This is where the gap bites: there's no real way to get from READY to READY_TO_SUBMIT.
-   Ask engineering to advance the one test package's status directly in the database (the
-   same thing the test suite's `advanceToReadyToSubmit()` helper does) if you need to see
-   `/submit` onward behave for a package you created yourself.
-5. Once at READY_TO_SUBMIT: `POST /releases/:id/submit` (202 response, queues a job), then
-   watch the package on the Queue/detail page — status should move
-   SUBMITTING → SUBMITTED → COUNTY_PROCESSING → RECORDED → RECONCILING → COMPLETE over
-   roughly 30-90 seconds as the worker polls the mock vendor automatically.
+   → `status: "DRAFT"`.
+3. `POST /releases/:id/preflight` → `preflight.passed: true`, `status: "READY"` (Texas
+   doesn't require a trustee).
+4. This is where the real gap would stop you (`/submit` still 409s here — try it and see).
+   Cross it with the dev-only shortcut:
+   `POST /api/v1/dev/releases/:id/advance-to-ready-to-submit` → `status:
+   "READY_TO_SUBMIT"`, plus a `warning` field reminding you this wasn't a real signature or
+   notarization. This endpoint only works from status READY, only for ORG_ADMIN, and only
+   outside a production deployment — see `docs/DECISIONS.md` D34 for exactly why it's safe
+   to have around.
+5. `POST /releases/:id/submit` → `202`, queues the real submission job. From here the worker
+   takes over on its own: watch the package on the Queue/detail page (or keep polling
+   `GET /releases/:id`) and its status will move
+   SUBMITTING → SUBMITTED → COUNTY_PROCESSING → RECORDED → RECONCILING → **COMPLETE**
+   automatically. In practice this whole last stretch took about 40 seconds against the mock
+   vendor's default (always-succeeds-by-the-3rd-poll) behavior.
+6. Worth a look afterward: `SELECT * FROM workflow_events WHERE package_id = '...' ORDER BY
+   created_at` shows the entire trail, with the three shortcut hops clearly marked
+   `actor = 'DEV_TOOL'` and everything else `USER`/`SYSTEM` — a good sanity check that the
+   shortcut isn't quietly polluting real audit data.
+
+**Option B — ask engineering to run the automated scenario suite**
+(`apps/worker/src/e2e-scenarios.test.ts`, scenarios A–J, driven against a real Postgres, the
+real compiled API, and the real job-queue handlers — not a simplified stand-in). Better for
+seeing the *failure* paths (pre-flight rejection, vendor rejection + resubmission, a
+mid-flight worker crash and recovery) that option A's happy path doesn't cover.
+`docs/TEST_STRATEGY.md` lists what each lettered scenario covers.
 
 ## 12. The 5 seeded demo packages
 

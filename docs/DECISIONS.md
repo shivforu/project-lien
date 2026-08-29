@@ -880,3 +880,47 @@ tester will actually run into. Verified every table entry (trustee flags, deadli
 networks, role/endpoint pairings) against the seed/source files directly rather than
 transcribing from `docs/ARCHITECTURE.md`/`docs/API.md`, since those are drafts and had
 already drifted from the real mount paths and implemented routes earlier in this project.
+
+## D34: added a dev/test-only `advance-to-ready-to-submit` endpoint, so the full 17-state lifecycle can actually be exercised by a human, not just read about
+
+**Decision:** D33 documented that nothing in this codebase ever performs
+`READY -> PENDING_SIGNATURE -> PENDING_NOTARY -> READY_TO_SUBMIT` — signature/notary capture
+was never built — which meant the *only* way anyone had ever seen a package reach
+SUBMITTING/SUBMITTED/RECORDED/COMPLETE for real was reading the automated test suite's own
+database-writing test helper, `advanceToReadyToSubmit()`. Asked directly by the project
+owner how to test all 17 states, rather than pointing back at the test suite again, added a
+real, callable version of that same shortcut: `POST
+/api/v1/releases/:id/advance-to-ready-to-submit` under a new dedicated router mounted at
+`/api/v1/dev` (`apps/api/src/routes/dev-tools.ts`). It only starts from status READY, walks
+the three real (legal, `assertTransition`-checked) hops one at a time, and requires
+ORG_ADMIN. Two things keep it from ever being mistaken for a real feature: the whole `/dev`
+router 404s outright when `NODE_ENV=production` (checked in the router's own first
+middleware, before auth even runs), and every transition it writes to `workflow_events` uses
+`actor = 'DEV_TOOL'` with a reason stating plainly that no real signature or notarization
+happened — distinct from every other actor value in this codebase (`USER`, `SYSTEM`) so the
+audit trail never lies about what occurred. Deliberately left out of `docs/API.md`'s target
+endpoint list, since that file documents the real customer-facing surface and this isn't
+part of it.
+**Why:** Verified live end-to-end against the running dev stack (real API, real worker, real
+Postgres, no shortcuts in the verification itself): created a new package on the seeded
+Texas loan/property (`QE-LIVE-TEST-001`, trustee not required), ran real `/preflight`
+(passed, reached READY), confirmed `/submit` still correctly 409s at that point, called the
+new endpoint (reached READY_TO_SUBMIT), then called real `/submit` and watched the real
+worker carry it through SUBMITTING → SUBMITTED → COUNTY_PROCESSING → RECORDED → RECONCILING
+→ COMPLETE unassisted in about 40 seconds. Queried `workflow_events` directly afterward and
+confirmed exactly three `DEV_TOOL`-actor rows sandwiched between real `USER` rows (package
+creation, pre-flight) and real `SYSTEM` rows (everything from submission onward) — the
+audit trail is honest about exactly what did and didn't really happen. Separately confirmed
+the safety rails: built and ran the compiled API with `NODE_ENV=production` and real
+(non-default) secrets — the dev endpoint 404s while every real endpoint still works — and
+confirmed OPERATOR and VIEWER tokens both get 403 from the endpoint even outside production.
+Added unit tests for the production gate in isolation (`apps/api/src/routes/dev-tools.test.ts`,
+a stub `db` since the gate must short-circuit before touching it) and full integration
+coverage in `apps/api/src/routes.test.ts` (role check, the 409-when-not-READY case, and the
+full walk plus a real `/submit` call proving the resulting status is genuinely usable, not
+just cosmetically correct). `pnpm typecheck`/`lint`/`test` all clean (40/40 API tests
+passing). `docs/QE_QUICKSTART.md` updated: section 4 points here instead of just naming the
+gap, section 6's endpoint table calls it out as deliberately excluded from the real surface,
+and section 11's walkthrough was rewritten around the actual verified run above (replacing
+the previous "ask engineering to hand-edit the database" instruction) with real timing
+(~40s) instead of an estimated range.

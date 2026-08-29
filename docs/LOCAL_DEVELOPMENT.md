@@ -10,7 +10,7 @@
 cp .env.example .env
 pnpm install
 docker compose up -d db minio
-pnpm --filter @project-lien/db prisma migrate deploy
+pnpm --filter @project-lien/db migrate   # hand-authored SQL migrations, not Prisma — see docs/DECISIONS.md D2
 pnpm --filter @project-lien/db seed
 pnpm dev            # runs api + worker + web together via turbo
 ```
@@ -18,10 +18,17 @@ pnpm dev            # runs api + worker + web together via turbo
 ## Common commands
 ```bash
 pnpm build          # build all packages/apps
+pnpm clean           # rm -rf each package's dist/.next + tsc's incremental-build cache
+                      # (genuinely does this as of Phase 15 — see docs/DECISIONS.md D24;
+                      # if you're on a checkout from before that fix, `git pull` first)
 pnpm typecheck       # tsc --noEmit across the workspace
 pnpm lint            # eslint across the workspace
 pnpm test            # unit + integration tests (spins up a throwaway test DB)
-pnpm test:e2e        # full docker-compose stack + Playwright/Vitest E2E scenarios
+pnpm test:e2e        # apps/worker's Vitest E2E scenarios (A-J, docs/TEST_STRATEGY.md)
+                      # plus apps/web's Playwright suite (docs/DECISIONS.md D23), which
+                      # boots the real compiled api/worker/web processes itself against a
+                      # dedicated database — no docker-compose or manually-running dev
+                      # servers required first
 ```
 
 ## Ports (default)

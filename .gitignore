@@ -9,3 +9,6 @@ coverage/
 .DS_Store
 *.log
 generated/
+test-results/
+playwright-report/
+blob-report/

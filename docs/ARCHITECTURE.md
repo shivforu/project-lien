@@ -55,7 +55,7 @@ transaction as the state change, so the audit trail can never drift from the act
              │             │             │             │               │
              └─────────────┴──────┬──────┴─────────────┴───────────────┘
                                   ▼
-                          PostgreSQL 16 (Prisma)      MinIO (document storage)
+                          PostgreSQL 16 (Kysely)      MinIO (document storage)
 ```
 
 `apps/api` never talks to vendor adapters or does long-running work directly — it writes
@@ -122,7 +122,9 @@ See docs/TEST_STRATEGY.md.
 
 ## Infrastructure / deployment
 
-Local: `docker-compose.yml` — Postgres, MinIO, api, worker, web. Migrations run via
-Prisma on container start. Production target: any container platform (ECS/Fly/Render/
+Local: `docker-compose.yml` — Postgres, MinIO, api, worker, web. Migrations run via this
+project's own hand-authored SQL runner (`packages/db/src/migrate.ts`; Prisma was the
+original plan but was dropped — see docs/DECISIONS.md D2) on container start. Production
+target: any container platform (ECS/Fly/Render/
 k8s) — see docs/DEPLOYMENT.md for the environment variable swap points (S3 vs MinIO,
 managed Postgres, real vendor credentials, real IdP).

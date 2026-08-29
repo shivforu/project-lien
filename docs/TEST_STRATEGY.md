@@ -43,9 +43,24 @@ Each scenario the project mandates, mapped to what actually exercises it:
 | I. Fee shortage | Mock vendor reports actual fee > estimated → ledger records a deficit-covered transaction, package still completes |
 | J. Restart mid-workflow | Kill the worker process mid-job (job left `IN_PROGRESS` past a claim-timeout) → next worker instance reclaims and completes it exactly once |
 
+## Web UI end-to-end tests (Playwright, `apps/web/e2e/`, added Phase 15)
+The scenario table above exercises the API/worker layer; it says nothing about the
+operations web app itself. Through Phase 14, that layer had only ever been checked with
+one-off manual Playwright scripts run by hand during Phase 10/11 and thrown away
+afterward — real coverage at the time, but not repeatable or committed. Phase 15 replaced
+that with `apps/web/e2e/golden-path.spec.ts`: a committed, automated suite that boots the
+actual compiled api/worker/web processes against a dedicated database
+(`apps/web/e2e/global-setup.ts`) and drives real headless Chromium through login → queue →
+package detail → jurisdiction lookup → integrations → forcing a package to REJECTED →
+resolving it in the exception center, asserting against both the rendered DOM and the
+database/API state the UI is supposed to reflect. Run it with `pnpm test:e2e` (same command
+as the API/worker scenarios above, via Turborepo) or `pnpm --filter @project-lien/web
+test:e2e` directly; CI runs it on every push (`.github/workflows/ci.yml`).
+
 ## Coverage expectations
 Domain packages (jurisdiction, fees, documents, pria, workflow, escrow) target high
 line/branch coverage since they encode the rules this whole product exists to get right.
-UI and thin controller code are covered by the E2E scenarios rather than exhaustive unit
-tests. Coverage is reported per-package and tracked in PROGRESS.md as each phase lands —
-no phase is marked done with failing or skipped tests.
+Thin controller code and the operations web app are covered by the E2E scenarios and the
+Playwright suite above rather than exhaustive unit tests. Coverage is reported per-package
+and tracked in PROGRESS.md as each phase lands — no phase is marked done with failing or
+skipped tests.

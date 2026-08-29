@@ -75,6 +75,20 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # Real-browser E2E for the operations web app (docs/REQUIREMENTS_MATRIX.md #25-#30).
+      # apps/web/e2e/global-setup.ts boots the actual compiled api/worker/web stack against
+      # a dedicated project_lien_e2e_web database on this same Postgres service container —
+      # no PLAYWRIGHT_BROWSERS_PATH is set here, so playwright.config.ts's executable-path
+      # resolution falls through to Playwright's own default (the browser this step installs),
+      # unlike the pre-installed-Chromium sandbox this suite was developed in (D20/D23).
+      - name: Install Playwright Chromium
+        run: pnpm --filter @project-lien/web exec playwright install --with-deps chromium
+
+      - name: E2E (real browser against the real compiled stack — see apps/web/e2e/)
+        run: pnpm run test:e2e
+        env:
+          E2E_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+
   docker-build:
     runs-on: ubuntu-latest
     # Not gated behind build-test-lint: a Dockerfile syntax/build regression is useful to

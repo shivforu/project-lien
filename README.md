@@ -7,6 +7,8 @@ jurisdiction compliance, pre-flight validation, PRIA packaging, electronic recor
 status tracking, escrow/fee reconciliation, statutory deadline monitoring, and audit.
 
 **Start here:**
+- `FINAL_SYSTEM_REVIEW.md` — consolidated status, requirements coverage, and known
+  limitations as of the end of the last planned phase. Read this first.
 - `PROGRESS.md` — current build status, phase by phase.
 - `docs/ARCHITECTURE.md` — system design, lifecycle state machine, component map.
 - `docs/DECISIONS.md` — every architectural decision and why (including where and why
@@ -57,6 +59,11 @@ packages/
   shared-types/          Cross-cutting TypeScript types
   shared-config/         Env loading, structured logging
 docs/       All planning, architecture, and compliance documentation
-infra/      Dockerfiles, CI
-tests/e2e/  End-to-end scenario tests
+infra/      Dockerfiles
+.github/    CI (build/test/lint + Docker image builds), Dependabot, dependency audit
 ```
+
+End-to-end tests live beside the code they exercise, not in a separate top-level
+directory: `apps/worker/src/e2e-scenarios.test.ts` (scenarios A-J, docs/TEST_STRATEGY.md)
+and `apps/web/e2e/` (a real-browser Playwright suite for the operations UI,
+docs/DECISIONS.md D23). Run both with `pnpm test:e2e`.

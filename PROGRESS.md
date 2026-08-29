@@ -553,4 +553,87 @@ by this phase. `pnpm audit`'s dependency-audit CI job is intentionally non-gatin
 **NEXT STEP:** Phase 15 — end-to-end verification and documentation.
 
 ## Phase 15 — End-to-end verification and documentation
-- [ ] Not started
+- [x] Built a committed, automated replacement for the operations web app's manual E2E
+      verification (docs/REQUIREMENTS_MATRIX.md #25-#27, #29-#30 had real coverage from
+      Phase 10/11's one-off Playwright scripts, but nothing that survived past that
+      session): `apps/web/e2e/global-setup.ts` boots the real compiled api/worker/web
+      processes against a dedicated `project_lien_e2e_web` database, and
+      `apps/web/e2e/golden-path.spec.ts` drives real headless Chromium through login →
+      jurisdiction lookup (against the real seeded CA/Los Angeles rule) → integrations →
+      creating a real package via the API and viewing it on the real queue/detail screens
+      → forcing it to REJECTED via direct SQL (mirroring Phase 11's own manual method) →
+      clicking the real "Resolve" button and confirming the real resulting Postgres row
+      (docs/DECISIONS.md D23). Wired into `pnpm test:e2e` (already `turbo run test:e2e
+      --concurrency=1` from Phase 14) and into `.github/workflows/ci.yml`.
+- [x] Found and fixed two real bugs building that suite: the pinned `@playwright/test`
+      range resolved to a version expecting a newer Chromium than this sandbox's
+      pre-installed one (fixed the same way `packages/domain-documents`'s PDF renderer
+      already had to, D4/D23); and spawning the web process through `pnpm --filter ...
+      start` left an orphaned `next-server` on its port after a killed run, because
+      `SIGTERM` to the `pnpm` wrapper doesn't reliably reach the actual server it spawns
+      as a grandchild (fixed by spawning Next's own entrypoint directly).
+- [x] Ran a genuine clean-room re-verification (something no prior phase had actually
+      done): `rm -rf dist .turbo` workspace-wide, then a full rebuild. This surfaced a
+      third, unrelated, previously-invisible bug — `pnpm clean` had been a silent no-op
+      since Phase 1, because the root script called a `turbo run clean` task that **no
+      package in the repository ever defined** — so every prior "clean rebuild" in this
+      project's history was actually `rm -rf dist` typed by hand, which never clears
+      `tsc`'s `--incremental` `tsconfig.tsbuildinfo` cache; that stale cache made one
+      package's `tsc` report success while silently emitting zero files, which the very
+      devDependency wiring this phase added (apps/web -> api/db/worker, purely so
+      Turborepo's graph rebuilds them before the new Playwright suite runs) then exposed
+      as a confusing downstream "cannot find module" in an unrelated package
+      (docs/DECISIONS.md D24). Fixed with a real `"clean": "rm -rf dist
+      tsconfig.tsbuildinfo"` script (plus `.next`) added to all 15 buildable packages.
+- [x] Corrected two further stale doc claims found during this pass: `docs/ARCHITECTURE.md`
+      still said migrations ran "via Prisma" and the datastore diagram said "PostgreSQL 16
+      (Prisma)" — both left over from before the Phase 1 Prisma → hand-authored-SQL pivot
+      (docs/DECISIONS.md D2) and never corrected until now; `docs/LOCAL_DEVELOPMENT.md`'s
+      first-time-setup snippet still ran `prisma migrate deploy` (a command that doesn't
+      exist in this project) instead of the real `pnpm --filter @project-lien/db migrate`.
+- [x] Re-ran the entire verification surface one final time from the genuinely clean state
+      above, as a single end-to-end confirmation that nothing this project has built or
+      fixed across 15 phases has silently regressed: full workspace build, full unit +
+      integration test suite (including the worker's 8 E2E scenarios A-J), full lint, and
+      now the web Playwright suite too — all green together for the first time.
+
+**STATUS:** DONE
+**FILES CREATED:** `apps/web/e2e/global-setup.ts`, `apps/web/e2e/golden-path.spec.ts`,
+`apps/web/playwright.config.ts`.
+**FILES MODIFIED:** `apps/web/package.json` (`@playwright/test`, `pg`, `@types/pg`
+devDependencies; `@project-lien/api`/`db`/`worker` added as devDependencies purely for
+Turborepo build-graph ordering, not code use; `test:e2e` and `clean` scripts); `packages/
+adapters-los`, `packages/adapters-storage`, `packages/shared-config`, `packages/
+domain-fees`, `packages/domain-documents`, `packages/domain-workflow`, `packages/
+domain-escrow`, `packages/db`, `packages/shared-types`, `packages/adapters-erecording`,
+`packages/domain-pria`, `packages/domain-jurisdiction`, `apps/worker`, `apps/api`
+`package.json` files (real `clean` scripts); `.github/workflows/ci.yml` (Playwright
+Chromium install + E2E step); `docs/ARCHITECTURE.md` (Prisma -> Kysely correction);
+`docs/LOCAL_DEVELOPMENT.md` (corrected migrate command, documented `pnpm clean`/
+`pnpm test:e2e`'s real current behavior); `docs/TEST_STRATEGY.md` (new Web UI E2E
+section); `docs/DECISIONS.md` (D23, D24); `docs/REQUIREMENTS_MATRIX.md` (rows #25-#27,
+#29-#30); `pnpm-lock.yaml`.
+**TESTS RUN:** `pnpm --filter @project-lien/web test:e2e` standalone (run twice
+consecutively to confirm teardown/re-run reliability); `pnpm test:e2e` (root, via turbo)
+from both a warm and a genuinely clean (`rm -rf dist .turbo tsconfig.tsbuildinfo`
+workspace-wide) state; `pnpm turbo run clean --concurrency=1`; `pnpm turbo run build test
+lint --concurrency=1 --force` from that same clean state.
+**TEST RESULTS:** New Playwright suite: 5/5 passing, real browser against the real
+compiled stack, consistently across repeated runs, with clean process/database teardown
+verified each time (no orphaned `next-server`, no leftover `project_lien_e2e_web`
+database). `pnpm turbo run clean`: 15/15 tasks now actually execute (previously silently
+skipped). Full clean-room `pnpm turbo run build test lint --concurrency=1 --force`: 44/44
+tasks. `pnpm test:e2e` (root): 16/16 tasks, covering both the worker's 8 E2E scenarios and
+the new 5-test web suite.
+**KNOWN LIMITATIONS:** The web E2E suite covers the golden path across every built screen
+but isn't exhaustive (no negative-path assertions, e.g. a failed login or a validation
+error toast) — reasonable scope for closing the "no repeatable coverage at all" gap this
+phase targeted, not a claim of exhaustive UI test coverage. Every other known limitation
+named across Phases 1-14 (docs/DECISIONS.md, docs/REQUIREMENTS_MATRIX.md's MOCKED/DEFERRED
+rows, docs/EXTERNAL_DEPENDENCIES.md, docs/ASSUMPTIONS.md) stands unchanged — this phase's
+job was verifying and documenting the system as actually built, not closing every
+previously-named gap. See FINAL_SYSTEM_REVIEW.md for the complete, consolidated picture.
+**NEXT STEP:** None — this was the last planned phase. FINAL_SYSTEM_REVIEW.md consolidates
+the full build for a reviewer; ongoing work from here is whatever the user decides to
+prioritize next (real vendor credentials, the Next 15 migration named in D22, a document
+viewer/upload endpoint, etc.).

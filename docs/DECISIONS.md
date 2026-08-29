@@ -465,3 +465,71 @@ what this project's "never claim something works without verifying" mandate exis
 prevent. `.github/workflows/dependency-audit.yml` (weekly, non-gating) and
 `.github/dependabot.yml` (weekly PRs) now watch this on an ongoing basis rather than
 relying on another one-off manual pass.
+
+## D23: Phase 15 replaced the operations web app's manual E2E verification with a committed, automated Playwright suite
+**Decision:** docs/REQUIREMENTS_MATRIX.md #25-#27, #29-#30 had all been genuinely verified
+at the time (Phase 10/11) with a real headless-Chromium Playwright script against a really
+running stack — but that script was hand-run and thrown away, not committed, so nothing
+would catch a regression in the web app on the next change. Phase 15 built
+`apps/web/e2e/golden-path.spec.ts` + `apps/web/e2e/global-setup.ts` as a permanent, repeatable
+replacement: global setup creates a dedicated `project_lien_e2e_web` database, runs the real
+compiled migration/seed scripts against it, and spawns the real compiled `apps/api`/
+`apps/worker` processes plus a real `next start` for `apps/web`, then tears all three down
+and drops the database afterward. The spec drives real Chromium through the full golden path
+(login, jurisdiction lookup against the real seeded CA/Los-Angeles rule, the integrations
+screen, creating a package through the real API and seeing it on the real queue/detail
+screens, then forcing a rejection via direct SQL — mirroring exactly how Phase 11's manual
+verification did it — and confirming the exception center's real "Resolve" button really
+advances the package in Postgres). `pnpm test:e2e` (already wired to `turbo run test:e2e
+--concurrency=1`, D21) now runs this alongside the existing worker E2E scenarios, and
+`.github/workflows/ci.yml` installs Chromium and runs it on every push.
+
+Two real, previously-unknown bugs surfaced while building this suite (worth recording since
+they'd have bitten a future contributor the same way): (1) the pinned `@playwright/test`
+version range (`^1.47.0`) resolved to a release expecting a newer Chromium build than this
+sandbox's pre-installed one, which would silently fail to launch — fixed by resolving an
+explicit `executablePath` under `PLAYWRIGHT_BROWSERS_PATH` (mirroring the identical, already-
+solved problem in `packages/domain-documents/src/pdf/renderer.ts`, D4) rather than assuming
+Playwright's own version-keyed browser lookup would work; (2) spawning the web process via
+`pnpm --filter @project-lien/web start` left an orphaned `next-server` process bound to its
+port after a killed/failed run, because `SIGTERM` to the `pnpm` wrapper process doesn't
+reliably reach the actual Next server it spawns as a grandchild — fixed by spawning Next's own
+CLI entrypoint directly (a single, directly-killable child process), plus a best-effort
+port-clearing step at the start of setup as a defense-in-depth measure.
+**Why:** A manual verification script proves a screen worked once, for the person who ran it,
+on that day. This project's whole methodology has been "verify against something real and
+keep the evidence," and the operations UI was the one area where the evidence wasn't kept —
+Phase 15 (end-to-end verification, the project's last phase) was the obvious place to close
+that out rather than let the FINAL_SYSTEM_REVIEW.md claim UI coverage that no CI run would
+ever actually re-check.
+
+## D24: Phase 15's own clean-room re-verification found every package's `clean` script was a silent no-op
+**Decision:** While proving Phase 15's new devDependency wiring (apps/web now depends on
+`@project-lien/api`/`db`/`worker` purely so Turborepo's build graph rebuilds them before the
+new Playwright suite runs — see D23) actually worked from a genuinely empty state, `rm -rf
+dist .turbo` across the workspace plus a re-run of `pnpm test:e2e` intermittently failed with
+`domain-pria`'s build unable to resolve `@project-lien/db`, even though `db`'s own build step
+reported success. Root cause: `tsc`'s `--incremental` mode (set in `tsconfig.base.json`)
+compares source file hashes against a `<package>/tsconfig.tsbuildinfo` file left over from an
+earlier build; that file was never deleted by the manual `rm -rf dist .turbo` cleanup, so
+`tsc` believed nothing had changed and skipped emitting any output at all — a genuine success
+exit code with zero files written, which Turborepo then cached as "this task produces no
+outputs" (with its own warning to that effect, easy to miss in the noise of an otherwise
+green run). Investigating why this had never surfaced across 14 prior phases of full-clean
+builds turned up the actual gap: root `package.json`'s `"clean": "turbo run clean && rm -rf
+node_modules"` had been calling a `turbo` task that **no package in the entire workspace ever
+defined** — every previous "clean rebuild" in this project's history was actually a `rm -rf
+dist` typed by hand (which never touches `tsconfig.tsbuildinfo`), not `pnpm clean`, so this
+gap was real from Phase 1 onward and simply never exercised. Fixed by adding a real `"clean":
+"rm -rf dist tsconfig.tsbuildinfo"` script (`.next` too, for `apps/web`) to all 15 packages
+that build; verified by running `pnpm turbo run clean --concurrency=1` (15/15 tasks executing
+for real, not skipped) followed by a full `pnpm turbo run build test lint --concurrency=1
+--force` from that genuinely clean state (44/44 tasks) and `pnpm test:e2e` (16/16 tasks,
+including the new Playwright suite) — both green.
+**Why:** A `clean` script that silently does nothing is worse than no script at all: it
+looks like a safety net right up until someone actually needs one, at which point it fails
+in the most confusing possible way (a "successful" build with missing output, several layers
+removed from the actual cause). This is exactly the class of bug this project's "never claim
+something works without actually verifying" mandate is meant to catch, and it only surfaced
+because Phase 15's own verification work happened to exercise a clean-room rebuild for the
+first time in the project's history.

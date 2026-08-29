@@ -14,6 +14,10 @@ pnpm --filter @project-lien/db migrate   # hand-authored SQL migrations, not Pri
 pnpm --filter @project-lien/db seed
 pnpm dev            # runs api + worker + web together via turbo
 ```
+`migrate`/`seed`/`dev`/`start` all load `.env` from the repo root automatically (Node's
+`--env-file-if-exists` flag, docs/DECISIONS.md D25) — no manual `export`/`source` needed,
+and nothing breaks if `.env` doesn't exist (e.g. in CI, or if you set real environment
+variables another way).
 
 ## Common commands
 ```bash

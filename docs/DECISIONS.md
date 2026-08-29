@@ -533,3 +533,37 @@ removed from the actual cause). This is exactly the class of bug this project's 
 something works without actually verifying" mandate is meant to catch, and it only surfaced
 because Phase 15's own verification work happened to exercise a clean-room rebuild for the
 first time in the project's history.
+
+## D25: `.env` was never actually loaded by any non-Docker command — `cp .env.example .env` had been a documented no-op since Phase 1
+**Decision:** Found when a real user followed docs/LOCAL_DEVELOPMENT.md's own first-time-setup
+steps on their own machine (the first time this project's setup instructions were followed by
+someone other than the process that wrote them) and `pnpm --filter @project-lien/db migrate`
+failed with `DATABASE_URL is required to run migrations` immediately after `cp .env.example
+.env`. Root cause: nothing in the entire codebase ever loaded a `.env` file into
+`process.env` for the local (non-Docker) path — `packages/db/src/migrate.ts` and `seed.ts`,
+and `apps/api`/`apps/worker`'s `dev`/`start` scripts, all read `process.env.DATABASE_URL`
+directly via plain `tsx`/`node` invocations with no `dotenv`, no `-r dotenv/config`, and no
+`--env-file` flag anywhere. `docker-compose.yml` was never affected (Compose passes
+environment values directly in its own YAML, not via dotenv-loading application code), which
+is exactly why this had never been caught by any of this project's own extensive Docker-path
+verification (docs/DECISIONS.md D20) — only the non-Docker `pnpm dev`/`migrate`/`seed` path
+was broken, and every verification run in this project's history up to this point had either
+used Docker or set `DATABASE_URL` explicitly on the command line (as the vitest configs and
+`apps/web/e2e/global-setup.ts` still correctly do — those were never affected either).
+Fixed with Node 20.6+/22's native `--env-file-if-exists=../../.env` flag (verified present in
+the pinned `tsx@^4.19.0`, which forwards it to the underlying Node runtime) added to
+`packages/db`'s `migrate`/`seed` scripts and `apps/api`/`apps/worker`'s `dev`/`start`
+scripts — no new dependency needed. Chose `--env-file-if-exists` specifically over
+`--env-file` so a missing `.env` (true of every CI run, and of anyone who sets real
+environment variables another way) degrades to "continuing without it" rather than a hard
+failure. Verified for real: a fresh `.env` copied from `.env.example`, `migrate`+`seed` run
+successfully against a real Postgres with zero manual exports; `apps/api`'s compiled server
+booted and answered a real `/health` 200 using only the `.env` file's `DATABASE_URL`; then,
+separately, the `.env` file removed entirely and the same server booted cleanly using an
+explicitly-set `DATABASE_URL`, confirming CI (which never creates a `.env`) is unaffected by
+this change either way.
+**Why:** A setup guide that was never actually followed end-to-end by anyone outside the
+process that wrote it is exactly the kind of unverified claim this project's mandate exists
+to prevent — and this one only surfaced once a real person ran the real documented steps on
+a real machine, which is the whole reason external verification matters even after 15 phases
+of internal self-verification.

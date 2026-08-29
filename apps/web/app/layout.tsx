@@ -1,3 +1,5 @@
+import { SessionStatus } from "./session-status";
+
 export const metadata = {
   title: "Project Lien — Operations",
   description: "Next-generation eRecording & mortgage lien-release platform",
@@ -17,7 +19,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <a href="/exceptions" style={navLinkStyle}>Exceptions</a>
           <a href="/integrations" style={navLinkStyle}>Integrations</a>
           <a href="/jurisdictions" style={navLinkStyle}>Jurisdictions</a>
-          <a href="/login" style={{ ...navLinkStyle, marginLeft: "auto" }}>Login</a>
+          <div style={{ marginLeft: "auto" }}>
+            <SessionStatus />
+          </div>
         </nav>
         <div style={{ maxWidth: 960, margin: "0 auto", padding: "2rem 1.5rem" }}>{children}</div>
       </body>

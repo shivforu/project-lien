@@ -12,6 +12,13 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const SESSION_KEY = "project-lien-session";
 
+// Login/logout happen via plain function calls, not a form submit that reloads the page, so
+// nothing would otherwise tell an already-mounted component (e.g. the nav bar) that the
+// session just changed. The native `storage` event only fires in *other* tabs, never the
+// tab that made the write — so same-tab UI (the nav bar right after /login redirects) needs
+// this custom event dispatched manually alongside every localStorage write below.
+export const SESSION_CHANGED_EVENT = "project-lien-session-changed";
+
 export interface Session {
   accessToken: string;
   organizationId: string;
@@ -22,6 +29,7 @@ export interface Session {
 export function saveSession(session: Session): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export function getSession(): Session | null {
@@ -38,6 +46,7 @@ export function getSession(): Session | null {
 export function clearSession(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(SESSION_KEY);
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 export class ApiError extends Error {

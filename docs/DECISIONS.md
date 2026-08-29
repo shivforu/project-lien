@@ -811,3 +811,32 @@ upsert). `docs/QE_QUICKSTART.md` updated with all three logins and a "log in as 
 confirm the API itself rejects a write" test suggestion — deliberately phrased to check
 server-side enforcement rather than only whether the UI hides a button, since the latter is
 not a security boundary.
+
+## D32: the nav bar never showed who was logged in, or offered a way to log out — `clearSession()` existed but was called nowhere in the app
+
+**Decision:** `apps/web/lib/api-client.ts` has had a working `clearSession()` since the
+session module was written, but no page or component ever called it — the nav bar
+(`apps/web/app/layout.tsx`) rendered a static, unconditional `<a href="/login">Login</a>`
+regardless of whether a session existed, so a logged-in user had no on-screen indication
+they were logged in, which role they held, or any way to sign out short of manually
+clearing browser storage. Added a client component, `apps/web/app/session-status.tsx`,
+that reads `getSession()` on mount and renders either the signed-in user's email + role
+with a "Log out" button, or a "Login" link when signed out; wired it into the nav bar in
+place of the static link. Session state lives in `localStorage`, not React context or a
+server session (a deliberate v1 simplification, see the doc comment atop `api-client.ts`),
+so nothing tells an already-mounted component that a login or logout just happened — the
+native `storage` event only fires in *other* tabs, never the one that made the write. Added
+a small custom `SESSION_CHANGED_EVENT`, dispatched from both `saveSession()` and
+`clearSession()`, that `session-status.tsx` listens for alongside `storage`, so the nav
+updates immediately in the same tab (right after `/login` redirects to `/queue`) as well as
+in other open tabs.
+**Why:** Verified live against the running dev stack (api + web, real Postgres, no mocks),
+not just by reading the diff: scripted a real browser (Playwright, headless Chromium)
+through the actual flow — loaded `/login` and confirmed the nav read plain "Login"; logged
+in as the seeded operator and confirmed the nav immediately showed
+`operator@demo-title-escrow.example (OPERATOR)` plus a "Log out" button, with no page
+reload; reloaded the page and confirmed the same state survived (session read fresh from
+`localStorage` on mount, not held only in memory); clicked "Log out" and confirmed it
+redirected to `/login`, the nav reverted to plain "Login", and `localStorage`'s
+`project-lien-session` key was actually gone, not just visually hidden. `pnpm typecheck`
+and `pnpm lint` (`apps/web`) both clean. No API or schema changes — this is web-only.

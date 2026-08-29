@@ -8,7 +8,7 @@ import { claimNextJob, completeJob, enqueueJob, failJob, requeueStaleJobs } from
 // Integration test against a real Postgres — the whole point of this suite is proving the
 // `FOR UPDATE SKIP LOCKED` claim pattern is actually exclusive under real concurrent
 // access, which a mock/in-memory DB cannot demonstrate (docs/TEST_STRATEGY.md).
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 
 let db: Kysely<Database>;
 

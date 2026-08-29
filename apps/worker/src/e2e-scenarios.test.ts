@@ -35,7 +35,7 @@ import { JOB_HANDLERS } from "./job-dispatcher.js";
  * scenario E would misrepresent what's covered, so it's left explicitly not-done here and
  * tracked in PROGRESS.md/REQUIREMENTS_MATRIX.md instead.
  */
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 
 let db: Kysely<Database>;
 let app: Express;

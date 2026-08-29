@@ -75,7 +75,12 @@ if (require.main === module) {
       process.exit(0);
     })
     .catch((err) => {
-      console.error("[migrate] Failed:", err.message);
+      // Log the full error, not just `.message` — a connection failure against multiple
+      // addresses (e.g. both ::1 and 127.0.0.1 refusing) comes back from Node as an
+      // AggregateError, whose `.message` is empty by default, which had been silently
+      // swallowing the actual "nothing is listening on this port" detail behind a blank
+      // "[migrate] Failed:" line (found via a real user hitting exactly this case).
+      console.error("[migrate] Failed:", err);
       process.exit(1);
     });
 }

@@ -6,7 +6,7 @@ import { runMigrations } from "./migrate.js";
 // intentional: the point of this test is proving migrations actually apply against a
 // real database engine, not against a mock. See docs/TEST_STRATEGY.md.
 const TEST_DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+  process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 
 describe("runMigrations", () => {
   it("applies all migrations from empty and is idempotent on a second run", async () => {

@@ -8,7 +8,7 @@ import { verifyWebhookSignature } from "@project-lien/shared-config";
 import { createLogger } from "@project-lien/shared-config";
 import { webhookDeliveryHandler } from "./webhook-delivery.js";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 let db: Kysely<Database>;
 let server: Server;
 let serverUrl: string;

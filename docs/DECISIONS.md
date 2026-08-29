@@ -567,3 +567,62 @@ process that wrote it is exactly the kind of unverified claim this project's man
 to prevent — and this one only surfaced once a real person ran the real documented steps on
 a real machine, which is the whole reason external verification matters even after 15 phases
 of internal self-verification.
+
+## D26: Postgres's host-side port moved from 5432 to 5433, and `project_lien_test`/`project_lien_e2e_web` are now auto-created on first container init
+
+**Decision:** Found immediately after D25, while the same real user continued through
+docs/LOCAL_DEVELOPMENT.md's first-time setup on their own machine. Two independent, genuine
+bugs surfaced together:
+
+1. **Port conflict.** `docker compose up -d db minio` intermittently failed with "port is
+   already allocated," and a subsequent `pnpm --filter @project-lien/db migrate` failed with
+   a blank `[migrate] Failed: ` (see below) or, once, `password authentication failed for
+   user "postgres"` after a stale volume was reused against a fresh container. Diagnosed
+   live via `docker compose ps`, `lsof -iTCP:5432 -sTCP:LISTEN`, and `docker ps` across all
+   of the user's local projects — the user then shared a Docker Desktop screenshot showing
+   an entirely unrelated project ("metinc") also mapping a Postgres container to host port
+   5432, currently stopped. A stopped container can still leave Docker Desktop's port-
+   forwarding proxy in an inconsistent reservation state on macOS, which is exactly what
+   made a plain port collision look like a credentials problem one moment and a connection
+   refusal the next. Offered the user a choice — retry as-is (this project's own container
+   was in fact the one bound to 5432 at that moment) or remap permanently to avoid the
+   recurring collision — and the user chose to remap permanently. `docker-compose.yml`'s
+   `db` service now maps host port **5433** to the container's internal 5432
+   (`"5433:5432"`); the container's own internal port is untouched, so `migrate`/`api`/
+   `worker`'s Docker-network connections to `db:5432` needed no change at all — only
+   host-reachable connection strings (`.env.example`, test/vitest configs referencing
+   `localhost:5432`, `apps/web/e2e/global-setup.ts`) were updated to `localhost:5433`.
+   `.github/workflows/ci.yml`'s own Postgres service container deliberately keeps plain
+   5432 — it's an isolated, single-purpose container per CI run with no other Postgres on
+   the same host, so it was never at risk and remapping it would only add noise.
+
+2. **Missing test databases.** While tracing the port issue, grepping the whole codebase
+   for `CREATE DATABASE`/`createdb` turned up nothing — `project_lien_test` (needed by
+   `pnpm test`) had never been created by anything in this project outside of a one-time
+   manual `createdb` run early in the original 15-phase build session, which had simply
+   persisted in that sandbox's own Postgres for the rest of the session without ever being
+   verified as part of a genuine fresh setup. `docker-compose.yml`'s `POSTGRES_DB` env var
+   only creates one database (`project_lien`) on first init. Fixed with a new
+   `infra/docker/postgres-init/01-create-test-db.sql`, mounted read-only into the `db`
+   service's `/docker-entrypoint-initdb.d/` — Postgres's official image runs every
+   `.sql`/`.sh` file there, in filename order, exactly once, only against a fresh data
+   volume — creating both `project_lien_test` and `project_lien_e2e_web` alongside
+   `project_lien` so a first-time `docker compose up -d db minio` is now actually
+   sufficient to run the whole local test suite, not only `pnpm dev`. CI is unaffected —
+   its Postgres service container sets `POSTGRES_DB: project_lien_test` directly and never
+   goes through this init-script path.
+
+   A third, smaller bug was found and fixed in the same debugging session: the earlier
+   blank `[migrate] Failed: ` (no message after the colon) came from `migrate.ts`'s catch
+   handler logging only `err.message` — a multi-address connection refusal (`localhost`
+   resolving to both `::1` and `127.0.0.1`, both refused) comes back from Node as an
+   `AggregateError`, whose `.message` is empty by default. Fixed by logging the full `err`
+   object instead (`seed.ts` already did this correctly and needed no change).
+**Why:** Applying a new volume mount or `POSTGRES_DB`-adjacent init script only takes
+effect against a *fresh* Postgres data volume — anyone already on a checkout from before
+this decision needs `docker compose down -v` (not just `up`) once to pick up both fixes,
+which is why this is called out explicitly rather than left to be discovered as a fourth
+confusing failure. Both bugs share the same root cause as D25: this project's local setup
+path had 15 phases of rigorous internal self-verification but had never actually been run,
+start to finish, by anyone other than the process that wrote it — external verification by
+a real user on a real machine is what caught all three issues in this pair of decisions.

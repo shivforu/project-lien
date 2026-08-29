@@ -17,9 +17,9 @@ import { Client } from "pg";
  */
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..");
-const ADMIN_DATABASE_URL = process.env.E2E_ADMIN_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/postgres";
+const ADMIN_DATABASE_URL = process.env.E2E_ADMIN_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/postgres";
 const TEST_DB_NAME = "project_lien_e2e_web";
-export const TEST_DATABASE_URL = `postgres://postgres:postgres@localhost:5432/${TEST_DB_NAME}`;
+export const TEST_DATABASE_URL = `postgres://postgres:postgres@localhost:5433/${TEST_DB_NAME}`;
 export const API_BASE_URL = "http://127.0.0.1:4000";
 export const WEB_BASE_URL = "http://127.0.0.1:3100";
 

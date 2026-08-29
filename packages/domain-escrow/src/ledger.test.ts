@@ -9,7 +9,7 @@ import { depositPayoff, getOrCreateEscrowAccount, holdRecordingFee, Insufficient
 // mutations and the immutable ledger_transactions trail actually work together
 // (docs/TEST_STRATEGY.md; this is the domain-escrow analog of domain-workflow's job-queue
 // concurrency test).
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 
 let db: Kysely<Database>;
 let orgId: string;

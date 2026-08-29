@@ -5,7 +5,7 @@ import type { Database } from "@project-lien/db";
 import { runMigrations } from "@project-lien/db";
 import { recordAuditEvent } from "./audit-log.js";
 
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 let db: Kysely<Database>;
 
 beforeAll(async () => {

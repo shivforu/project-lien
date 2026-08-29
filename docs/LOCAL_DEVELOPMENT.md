@@ -38,7 +38,7 @@ pnpm test:e2e        # apps/worker's Vitest E2E scenarios (A-J, docs/TEST_STRATE
 ## Ports (default)
 - `apps/web` → http://localhost:3000
 - `apps/api` → http://localhost:4000 (health: `/health`, readiness: `/ready`)
-- Postgres → localhost:5432
+- Postgres → localhost:5433 (not Postgres's usual 5432 — docs/DECISIONS.md D26)
 - MinIO → http://localhost:9000 (console: 9001)
 
 ## Working without Docker

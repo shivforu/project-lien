@@ -9,9 +9,18 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: project_lien
     ports:
-      - "5432:5432"
+      # Host-side 5433, not 5432 (docs/DECISIONS.md D26): 5432 is the single most likely
+      # port to already be taken on a dev machine by some *other* project's Postgres, and
+      # a stopped-but-still-port-reserved container can make that collision look like a
+      # credentials problem instead of a port conflict. The container's own internal port
+      # is untouched — api/worker/migrate below still talk to `db:5432` over the Docker
+      # network, since that side never goes through the host at all.
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Creates project_lien_test alongside POSTGRES_DB's project_lien on first init —
+      # `pnpm test` needs it and nothing had ever created it automatically (D26).
+      - ./infra/docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d project_lien"]
       interval: 5s

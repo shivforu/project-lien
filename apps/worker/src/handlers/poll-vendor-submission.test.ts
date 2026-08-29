@@ -11,7 +11,7 @@ import { createLogger } from "@project-lien/shared-config";
 // Integration test against a real Postgres, proving the worker's queue mechanics and the
 // POLL_VENDOR_SUBMISSION handler wire together end to end: enqueue -> claim -> handler ->
 // package state transition (docs/TEST_STRATEGY.md scenario A/D).
-const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test";
+const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test";
 
 let db: Kysely<Database>;
 const logger = createLogger("worker-test");

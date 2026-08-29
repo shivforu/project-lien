@@ -10,7 +10,7 @@ export default defineConfig({
     // race two resets against each other, so they run one at a time instead.
     fileParallelism: false,
     env: {
-      DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/project_lien_test",
+      DATABASE_URL: process.env.TEST_DATABASE_URL ?? "postgres://postgres:postgres@localhost:5433/project_lien_test",
       JWT_ACCESS_SECRET: "test-access-secret",
       JWT_REFRESH_SECRET: "test-refresh-secret",
       WEBHOOK_SIGNING_SECRET: "test-webhook-secret",

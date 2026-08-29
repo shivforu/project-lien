@@ -349,3 +349,119 @@ running is worse than no document at all — it gives false assurance. This phas
 to make the real gaps either closed (rate limiting, CORS, refresh flow, TTL config,
 redaction verification, secret fail-fast) or explicitly named (revocation, API keys,
 malware scanning, mTLS, CI secret-scanning), never left ambiguous.
+
+## D20: Phase 14 found the Docker daemon actually works here — and two real bugs a build would have caught
+**Decision:** Every prior phase's docs (docs/REQUIREMENTS_MATRIX.md #37, PROGRESS.md)
+stated no Docker daemon was available in this build sandbox, so `docker-compose.yml` and
+the three Dockerfiles had only ever been code-reviewed, never built. Phase 14 found this
+was half true: `dockerd` actually starts and runs here (`docker ps`/`docker info` both
+work), but this sandbox's network egress allowlist blocks every container registry
+(`registry-1.docker.io`, `mirror.gcr.io`, `public.ecr.aws` were all tried and all return
+403 Forbidden on the base-image pull) — so a `docker build` still cannot complete here, for
+a different and more specific reason than previously documented. This distinction matters:
+it means the remaining gap is exactly "pull `node:20-slim` once," not "get Docker running
+here at all," which is what a user running this on their own machine will not hit.
+Verification that *was* possible without a completed image build found two real,
+previously-undiscovered bugs by reading the Dockerfiles and compose file closely, plus
+independently confirming both by running the exact same `RUN`/`CMD` commands the
+Dockerfiles use directly against a real local Postgres (not inside a container, but the
+identical commands and identical compiled artifacts a container would run):
+1. **`Dockerfile.web`'s final stage shipped dangling symlinks.** pnpm's default
+   node_modules layout is symlinks pointing back up to a root-level `.pnpm` store; the
+   final stage copied only `apps/web/node_modules` (the symlinks) without the store they
+   point to, which would have made `next start` fail to resolve `react`/`next` at
+   container startup — a bug no prior phase could have caught without an actual build.
+   Fixed by adding `output: "standalone"` to `apps/web/next.config.js` (Next.js traces and
+   copies only the actually-used runtime files into a self-contained tree) and rewriting
+   the final stage to copy `.next/standalone` + `.next/static` + `public` instead, then
+   `CMD ["node", "apps/web/server.js"]`. Verified for real: `pnpm --filter
+   @project-lien/web build` was re-run and `apps/web/.next/standalone/apps/web/server.js`
+   plus a real (non-symlink) `node_modules` tree were confirmed to exist on disk.
+2. **`docker-compose.yml`'s `api`/`worker` services would refuse to start under D19's new
+   fail-fast check.** They set `NODE_ENV: production` (correctly, to exercise the real
+   production code path) but never set `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`/
+   `WEBHOOK_SIGNING_SECRET`/`STORAGE_SECRET_KEY` — meaning `assertNoInsecureDefaultsInProduction`
+   (D19) would throw at container startup. This is D19 working as designed against a real
+   consumer of it, not a flaw in D19 — `docker-compose.yml` needed updating to supply
+   distinct, non-default (still not "real") secret values, and MinIO's own credentials
+   needed to move off `minioadmin` to match, since `minioadmin` is itself one of the
+   flagged insecure defaults. Verified for real: booted the actual compiled
+   `apps/api/dist/server.js` and `apps/worker/dist/index.js` directly with the exact env
+   var values now in `docker-compose.yml` (`NODE_ENV=production` plus the new compose
+   secrets) against a real local Postgres — both started cleanly and `/health`/`/ready`
+   responded correctly; a second run with the *old* (insecure-default) values reproduced
+   the exact startup failure this fix prevents, confirming both sides of the fix.
+**Why:** These are exactly the kind of integration bug that only surfaces by actually
+running the artifact a Dockerfile produces, or by reasoning carefully about what it
+produces when running it isn't possible — the project mandate's "never claim something
+works without verifying" applies here even though a full `docker build` couldn't be
+completed. Static review plus running the identical compiled commands outside the
+container was the most real verification available, and it caught genuine bugs a
+docs-only review would have missed.
+
+## D21: `pnpm test` from the repo root silently corrupted itself via a cross-package DB race
+**Decision:** Every package whose tests hit real Postgres resets a shared
+`project_lien_test` database in its own `beforeAll` (`DROP SCHEMA public CASCADE` +
+migrate). Each package's own `vitest.config.ts` sets `fileParallelism: false` so that
+package's *own* test files never race each other — but nothing prevented Turborepo from
+running *different packages'* test tasks concurrently, and the root `package.json`'s
+`"test": "turbo run test"` script had no concurrency limit. Every verification run in this
+project's history up to this phase happened to pass `--concurrency=1` by hand (a habit
+carried over from when `apps/api` and `apps/worker`'s test suites were first made to share
+a database), which silently masked this: `pnpm test` — the command anyone would actually
+run — was never itself tested. Phase 14 ran it for real (`pnpm test --force`, bypassing
+Turbo's cache) and reproduced real failures: `apps/api` and `apps/worker`'s test processes
+ran at the same time, and one package's `DROP SCHEMA public CASCADE` fired while the
+other's tests were mid-run against tables that then no longer existed
+(`relation "users" does not exist`, `relation "state_jurisdiction_rules" does not exist`).
+**Fix:** `"test": "turbo run test --concurrency=1"` (and `"test:e2e"` to match) in the root
+`package.json`, so the safe invocation is the default one rather than a convention every
+future contributor and CI run would have to independently rediscover. Verified: `pnpm test
+--force` re-run after the fix passes all 25 task 100% clean (125 tests across every
+package). The real cost is a slower `pnpm test` (fully serial instead of parallelized
+across packages) — an acceptable trade for correctness at this project's current test
+suite size; a future phase could instead give each package its own dedicated test database
+name to allow safe parallelism, but that's a larger change deferred rather than rushed here.
+**Why:** A test command that only produces correct results when invoked with a flag no one
+documented is a real, load-bearing bug in the test infrastructure itself, not a style nit —
+and it was only found by actually running the plain, undocumented command a real user or a
+real CI pipeline would run, rather than continuing to rely on the hand-typed flag that had
+been masking it.
+
+## D22: Dependency audit — closed a critical CVE and 15 of 37 vulnerabilities, documented the rest
+**Decision:** `pnpm audit --prod` (added to CI, docs/DEPLOYMENT.md's "dependency scanning"
+line item) found 37 real vulnerabilities in this build's actual dependency tree, including
+one critical: a Next.js authorization-bypass-in-middleware CVE (GHSA-f82v-jwr5-mffw), live
+on the `next@14.2.15` this project had been building against since Phase 1. Fixed what
+could be fixed without a risky major-version jump, left the rest as a named, deliberate gap:
+- **`next` bumped 14.2.15 -> 14.2.35** (latest 14.2.x patch release) — closes the critical
+  bypass plus several high-severity DoS/cache-poisoning CVEs, while staying on the Next 14
+  major so this doesn't force a React 19 migration or an untested App Router behavior
+  change. Verified: full `pnpm --filter @project-lien/web build` re-run, all 8 existing
+  routes still compile and prerender; a real `next start` process (see D20) still serves
+  `/login` with a 200.
+- **`kysely` bumped ^0.27.4 -> ^0.28.17 across all 6 packages that depend on it**
+  (`packages/db`, `domain-escrow`, `domain-jurisdiction`, `domain-workflow`, `apps/api`,
+  `apps/worker`) — closes 3 high-severity SQL/JSON-path injection CVEs. Kysely is pre-1.0,
+  so a minor bump can carry breaking changes; verified for real by re-running the entire
+  workspace test suite after the bump (`pnpm turbo run build test lint --concurrency=1
+  --force`), which passed 44/44 tasks with zero code changes needed.
+- **`postcss` (a transitive dependency Next.js itself pins to a vulnerable `8.4.31`, not
+  something this project depends on directly) pinned workspace-wide to `>=8.5.23`** via a
+  `pnpm.overrides` entry in the root `package.json` — closes 2 high and 2 moderate CVEs.
+  Low risk: `apps/web` has no postcss/Tailwind config or CSS files of its own (confirmed by
+  searching for either), so postcss here is unused dead weight bundled by Next's own build
+  pipeline, not something this project's pages actually exercise.
+- **Remaining ~21 `next`-related advisories require Next.js 15.x** (several need
+  `>=15.0.8`, most need `>=15.5.16` or later) — a major-version migration requiring React 19
+  and carrying real App Router behavior changes, which is out of scope for a hardening pass
+  with no dedicated regression-testing time budgeted for it. Left as a named, tracked gap
+  (this entry, plus docs/REQUIREMENTS_MATRIX.md #38) rather than either silently ignored or
+  rushed in without verification.
+**Why:** Closing the critical CVE and every fix reachable without a major-version jump is
+real, verified security value; jumping to Next 15 without the time to actually test the
+migration would trade a documented, bounded gap for an unverified, unbounded one — exactly
+what this project's "never claim something works without verifying" mandate exists to
+prevent. `.github/workflows/dependency-audit.yml` (weekly, non-gating) and
+`.github/dependabot.yml` (weekly PRs) now watch this on an ongoing basis rather than
+relying on another one-off manual pass.

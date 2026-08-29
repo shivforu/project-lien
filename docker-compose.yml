@@ -23,8 +23,9 @@ services:
     container_name: project_lien_minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      # Not "minioadmin" (see api/worker's STORAGE_SECRET_KEY comment below for why).
+      MINIO_ROOT_USER: project_lien_local
+      MINIO_ROOT_PASSWORD: local-compose-minio-password-not-minioadmin
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -62,6 +63,18 @@ services:
       API_PORT: 4000
       DATABASE_URL: "postgres://postgres:postgres@db:5432/project_lien"
       STORAGE_ENDPOINT: "http://minio:9000"
+      STORAGE_ACCESS_KEY: "project_lien_local"
+      STORAGE_SECRET_KEY: "local-compose-minio-password-not-minioadmin"
+      # This stack runs with NODE_ENV=production to exercise the actual production code
+      # path (see Dockerfile.api's runner stage) — which since Phase 13 means
+      # packages/shared-config/src/env.ts's assertNoInsecureDefaultsInProduction refuses to
+      # start if any secret is still at its `.env.example` placeholder value
+      # (docs/DECISIONS.md D19). These are still not real secrets — just distinct,
+      # compose-local placeholder strings — swap for values from a real secret manager in
+      # an actual deployment (docs/DEPLOYMENT.md).
+      JWT_ACCESS_SECRET: "local-compose-access-secret-not-the-dev-default"
+      JWT_REFRESH_SECRET: "local-compose-refresh-secret-not-the-dev-default"
+      WEBHOOK_SIGNING_SECRET: "local-compose-webhook-secret-not-the-dev-default"
     depends_on:
       db:
         condition: service_healthy
@@ -78,6 +91,13 @@ services:
       NODE_ENV: production
       DATABASE_URL: "postgres://postgres:postgres@db:5432/project_lien"
       STORAGE_ENDPOINT: "http://minio:9000"
+      STORAGE_ACCESS_KEY: "project_lien_local"
+      STORAGE_SECRET_KEY: "local-compose-minio-password-not-minioadmin"
+      # See the api service's comment above — same fail-fast production-secret check
+      # applies here too (apps/worker also calls loadEnv()).
+      JWT_ACCESS_SECRET: "local-compose-access-secret-not-the-dev-default"
+      JWT_REFRESH_SECRET: "local-compose-refresh-secret-not-the-dev-default"
+      WEBHOOK_SIGNING_SECRET: "local-compose-webhook-secret-not-the-dev-default"
     depends_on:
       db:
         condition: service_healthy

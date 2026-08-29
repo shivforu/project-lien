@@ -31,8 +31,20 @@ pnpm test:e2e        # full docker-compose stack + Playwright/Vitest E2E scenari
 - MinIO → http://localhost:9000 (console: 9001)
 
 ## Working without Docker
-This document is being built in a sandboxed environment without a Docker daemon
-available, so during development we verify against a natively-installed PostgreSQL
-instance and run apps directly with `pnpm dev` rather than through containers. Both paths
-stay in sync: the same Prisma schema/migrations and the same `.env` variables drive
-either setup — Docker is for convenience, not a hard dependency of the codebase.
+On a normal developer machine, `docker compose up -d db minio` (or the full
+`docker compose up`) should work fine — nothing about this codebase requires avoiding
+Docker. This project's own build sandbox is a narrower case worth calling out: the Docker
+*daemon* runs there without issue, but outbound pulls from container registries
+(Docker Hub, GCR mirrors, ECR public) are blocked by network egress policy, so `docker
+build`/`docker compose up` against upstream base images can't complete inside that
+sandbox specifically (see docs/DECISIONS.md D20). Phase 14's Docker/Compose fixes were
+therefore verified by running the equivalent compiled commands directly (booting
+`apps/web/.next/standalone/apps/web/server.js`, `apps/api/dist/server.js`, and
+`apps/worker/dist/index.js` with the exact env vars docker-compose supplies) rather than
+via a full `docker compose up`, and real container builds are covered by
+`.github/workflows/ci.yml`'s `docker-build` job, which runs on GitHub-hosted runners with
+normal registry access. If you ever hit the same registry-blocked symptom locally (unlikely
+outside a locked-down CI/sandbox network), the fallback is what this project used throughout
+development: point `DATABASE_URL` at a natively-installed PostgreSQL 16 instance and run
+apps directly with `pnpm dev`. Both paths stay in sync — the same migrations and the same
+`.env` variables drive either setup.

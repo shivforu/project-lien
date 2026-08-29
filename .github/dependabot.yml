@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Single pnpm workspace root — Dependabot understands pnpm workspaces from this one
+  # entry and opens PRs against the individual package.json files as needed.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # next and its own bundled deps (e.g. postcss) tend to need coordinated bumps —
+      # docs/DECISIONS.md D22 covers the postcss transitive-dependency override this
+      # project already carries.
+      next:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+
+  - package-ecosystem: "docker"
+    directory: "/infra/docker"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

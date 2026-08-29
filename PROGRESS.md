@@ -473,8 +473,84 @@ instances — noted for Phase 14/production).
 **NEXT STEP:** Phase 14 — Docker / deployment / CI.
 
 ## Phase 14 — Docker / deployment / CI
-- [ ] Not started (docker-compose file itself lands in Phase 1; this phase is CI +
-      production-shape hardening)
+- [x] Re-tested the sandbox's Docker capability rather than trusting the Phase 1 note that
+      carried forward unchallenged since — found it was half-stale (docs/DECISIONS.md D20):
+      the daemon runs fine here, only container-registry pulls are blocked by network
+      egress, a narrower and more accurate finding than "no Docker daemon."
+- [x] Used that finding to verify as much as actually possible without a completed image
+      pull, and caught two real, previously-undiscovered bugs by doing so:
+      - `Dockerfile.web`'s final stage shipped dangling symlinks (pnpm's node_modules
+        symlinks into a root `.pnpm` store that stage never copied) — fixed via Next.js
+        `output: "standalone"` + a rewritten final stage; verified by actually booting
+        `apps/web/.next/standalone/apps/web/server.js` and getting a real HTTP 200.
+      - `docker-compose.yml`'s `api`/`worker` services set `NODE_ENV=production` while
+        relying on the schema's insecure default secrets (and MinIO's own
+        `minioadmin`/`minioadmin`), which Phase 13's new fail-fast check would reject at
+        startup — fixed with distinct real placeholder secrets; verified by booting
+        `apps/api/dist/server.js` and `apps/worker/dist/index.js` directly with the exact
+        new compose env vars (clean start, `/health`/`/ready` correct) and by reproducing
+        the original failure with the old values.
+- [x] Wrote `.github/workflows/ci.yml` (Postgres 16-alpine service container, install,
+      typecheck, lint, test, build, then a `docker-build` job building all 3 Dockerfiles on
+      GitHub-hosted runners, which have normal registry access this sandbox doesn't).
+- [x] Wrote `.github/dependabot.yml` (npm workspace root with a grouped `next` update,
+      Docker images under `infra/docker`, GitHub Actions) and
+      `.github/workflows/dependency-audit.yml` (weekly non-gating `pnpm audit`).
+- [x] Ran a real `pnpm audit --prod` and fixed what could be fixed without an unbudgeted
+      major migration: `next` 14.2.15 -> 14.2.35 (patches a critical middleware
+      authorization-bypass CVE), `kysely` ^0.27.4 -> ^0.28.17 across all 6 packages that use
+      it (3 high SQL/JSON-path-injection CVEs), `postcss` pinned >=8.5.23 via a root
+      `pnpm.overrides` entry (Next's own transitive dependency). Deferred the remaining
+      ~21 advisories that require a Next 15/React 19 major bump, named explicitly in
+      docs/DECISIONS.md D22 rather than rushed in without regression time.
+- [x] Found and fixed an unrelated, previously-invisible bug while re-verifying after the
+      dependency bumps: plain `pnpm test` (no manually-added flag) genuinely fails —
+      `apps/api` and `apps/worker` race each other's `DROP SCHEMA public CASCADE` against
+      the one shared test database when Turborepo runs both packages' test tasks
+      concurrently. Every prior phase's verification had accidentally masked this by always
+      including `--concurrency=1` by hand. Fixed for good by baking `--concurrency=1` into
+      the root `test`/`test:e2e` scripts themselves (docs/DECISIONS.md D21).
+- [x] Corrected the stale "no Docker daemon" claim in docs/LOCAL_DEVELOPMENT.md to match
+      the D20 finding, and updated docs/REQUIREMENTS_MATRIX.md rows #37/#38.
+
+**STATUS:** DONE
+**FILES CREATED:** `.github/workflows/ci.yml`, `.github/workflows/dependency-audit.yml`,
+`.github/dependabot.yml`.
+**FILES MODIFIED:** `apps/web/next.config.js` (`output: "standalone"`);
+`infra/docker/Dockerfile.web` (rewritten final stage); `docker-compose.yml` (real distinct
+secrets for `api`/`worker`, real MinIO credentials); `package.json` root (`test`/`test:e2e`
+scripts now pass `--concurrency=1`; added `pnpm.overrides.postcss`); `apps/web/package.json`
+(`next` bump); `packages/db`, `packages/domain-escrow`, `packages/domain-jurisdiction`,
+`packages/domain-workflow`, `apps/api`, `apps/worker` `package.json` files (`kysely` bump);
+`pnpm-lock.yaml`; `docs/LOCAL_DEVELOPMENT.md` (corrected Docker-availability claim);
+`docs/DECISIONS.md` (D20, D21, D22); `docs/REQUIREMENTS_MATRIX.md` (rows #37, #38).
+**TESTS RUN:** `pnpm --filter @project-lien/web build` (standalone-output verification);
+direct boot of `apps/web/.next/standalone/apps/web/server.js` + `curl /login`; direct boot
+of `apps/api/dist/server.js` and `apps/worker/dist/index.js` against the new compose env
+(both with the corrected secrets and, to confirm the fail-fast check works, the original
+insecure ones); `pnpm test --force` (root, post-concurrency-fix, forcing full cache bypass);
+`pnpm turbo run build test lint --concurrency=1 --force` (post dependency bumps).
+**TEST RESULTS:** Standalone server boot: real non-symlink `node_modules` confirmed on
+disk, `curl http://127.0.0.1:3099/login` -> HTTP 200. Compose-env boot: `api`/`worker` start
+cleanly with new secrets, `/health`/`/ready` correct; both processes correctly refuse to
+start with the old insecure defaults, confirming Phase 13's fail-fast check actually fires.
+`pnpm test --force`: 25/25 tasks, 125/125 tests passing (previously silently dependent on a
+hand-typed flag every prior phase happened to include). Post-dependency-bump full suite:
+44/44 turbo tasks passing. `pnpm audit --prod`: 37 advisories (1 critical/15 high/17
+moderate/4 low) -> 21 (0 critical/~10 high/~9 moderate/2 low) after the three bumps above.
+Docker image builds themselves were not completed end-to-end in this sandbox (registry pulls
+blocked, see D20) — that verification now runs for real on every push via
+`.github/workflows/ci.yml`'s `docker-build` job.
+**KNOWN LIMITATIONS:** No actual `docker build`/`docker compose up` was run to completion in
+this sandbox (registry access blocked, not a codebase issue — see docs/DECISIONS.md D20);
+first real confirmation of that path will be the next CI run. The remaining ~21 dependency
+advisories require a Next 15/React 19 major-version migration, deliberately deferred
+(docs/DECISIONS.md D22) rather than rushed in without time to regression-test a major
+framework bump. Rate limiting (from Phase 13) is still in-memory/per-process, which matters
+more once this ships behind a real multi-instance production deploy — noted there, unchanged
+by this phase. `pnpm audit`'s dependency-audit CI job is intentionally non-gating
+(informational only), so a newly-disclosed advisory won't block a PR by itself.
+**NEXT STEP:** Phase 15 — end-to-end verification and documentation.
 
 ## Phase 15 — End-to-end verification and documentation
 - [ ] Not started

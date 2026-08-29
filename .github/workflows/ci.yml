@@ -1,0 +1,115 @@
+name: CI
+
+# Runs the exact same commands used to verify every phase of this build locally
+# (docs/DECISIONS.md D21: `pnpm test` is now safe to run as-is, not just with a
+# hand-typed --concurrency=1 flag) — install, typecheck, lint, test against a real
+# Postgres, then build. No step here does anything this repo's own commits weren't
+# already verified against; this workflow exists to run those same commands on every
+# push/PR instead of relying on a human to remember to.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # Matches apps/api and apps/worker's vitest.config.ts fallback exactly, so no
+  # per-package env overrides are needed here.
+  TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/project_lien_test
+  # Non-default placeholder secrets (docs/DECISIONS.md D19) — CI runs with NODE_ENV=test
+  # (vitest's own default), so the production fail-fast check doesn't apply, but using
+  # real-shaped values here rather than the flagged `dev-only-change-me-*` strings keeps
+  # this workflow honest about what a real deployment's secrets should look like.
+  JWT_ACCESS_SECRET: ci-access-secret-not-for-production-use
+  JWT_REFRESH_SECRET: ci-refresh-secret-not-for-production-use
+  WEBHOOK_SIGNING_SECRET: ci-webhook-secret-not-for-production-use
+
+jobs:
+  build-test-lint:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: project_lien_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d project_lien_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Test (real Postgres — see docs/TEST_STRATEGY.md)
+        run: pnpm run test
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/project_lien_test
+
+      - name: Build
+        run: pnpm run build
+
+  docker-build:
+    runs-on: ubuntu-latest
+    # Not gated behind build-test-lint: a Dockerfile syntax/build regression is useful to
+    # know about even if it's unrelated to an app-level test failure, and this job doesn't
+    # need the source checks to have passed first.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # This project's own build sandbox could run the Docker daemon but had no network
+      # access to any container registry to pull node:20-slim (docs/DECISIONS.md D20) — so
+      # these builds were verified here only by static review plus running the identical
+      # compiled commands outside a container. A GitHub-hosted runner has normal registry
+      # access, so this step is real verification of what this sandbox could only reason
+      # about.
+      - name: Build api image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.api
+          push: false
+
+      - name: Build worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.worker
+          push: false
+
+      - name: Build web image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.web
+          push: false

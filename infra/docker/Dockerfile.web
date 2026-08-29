@@ -14,12 +14,22 @@ COPY apps/web apps/web
 WORKDIR /repo/apps/web
 RUN pnpm build
 
+# `output: "standalone"` (apps/web/next.config.js, docs/DECISIONS.md D20) makes this stage
+# possible: pnpm's default node_modules layout is symlinks pointing back up to a
+# root-level `.pnpm` store, so copying `apps/web/node_modules` alone (the pre-Phase-14
+# version of this file) shipped dangling symlinks with nothing on the other end — the
+# image would fail at startup unable to resolve `next`/`react`. Standalone output traces
+# and copies only the actually-used runtime files into a self-contained tree instead.
 FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=build /repo/apps/web/.next ./.next
-COPY --from=build /repo/apps/web/public ./public
-COPY --from=build /repo/apps/web/package.json ./package.json
-COPY --from=build /repo/apps/web/node_modules ./node_modules
+# .next/standalone mirrors the monorepo path (apps/web/server.js), since this build has a
+# workspace root above apps/web — matched here with WORKDIR /app so `apps/web/server.js`
+# resolves the same way inside the container as it does inside .next/standalone/apps/web.
+COPY --from=build /repo/apps/web/.next/standalone ./
+COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build /repo/apps/web/public ./apps/web/public
 EXPOSE 3000
-CMD ["node_modules/.bin/next", "start"]
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+CMD ["node", "apps/web/server.js"]

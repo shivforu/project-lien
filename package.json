@@ -12,8 +12,8 @@
     "dev": "turbo run dev --parallel",
     "typecheck": "turbo run typecheck",
     "lint": "turbo run lint",
-    "test": "turbo run test",
-    "test:e2e": "turbo run test:e2e",
+    "test": "turbo run test --concurrency=1",
+    "test:e2e": "turbo run test:e2e --concurrency=1",
     "clean": "turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
@@ -32,6 +32,9 @@
       "@prisma/engines",
       "prisma",
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "postcss": ">=8.5.23"
+    }
   }
 }

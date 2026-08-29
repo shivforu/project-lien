@@ -16,12 +16,18 @@ reconciled), and a web **operations console** you'll use for testing.
 1. Ask engineering to start the app locally (`pnpm dev`) — it runs at:
    - Web console: **http://localhost:3000**
    - API (used by the console, not something you need to call directly): http://localhost:4000
-2. Log in at http://localhost:3000/login with:
-   - **Email:** `admin@demo-title-escrow.example`
-   - **Password:** `password123`
+2. Log in at http://localhost:3000/login. Three seeded logins exist, all with password
+   **`password123`**, one per role:
 
-This account is an Org Admin for the seeded demo organization ("Demo Title & Escrow Co."),
-so it can see and act on everything.
+   | Email | Role | Can do |
+   |---|---|---|
+   | `admin@demo-title-escrow.example` | ORG_ADMIN | Everything, including the audit log. |
+   | `operator@demo-title-escrow.example` | OPERATOR | The day-to-day work — create/submit/resubmit/cancel packages, resolve exceptions — but can't view the audit log. |
+   | `viewer@demo-title-escrow.example` | VIEWER | Read-only. Every write action is rejected by the API even if a button doesn't visibly disable itself. |
+
+All three belong to the same seeded demo organization ("Demo Title & Escrow Co.") and see
+the same data — only what they're allowed to *do* differs. Useful for confirming role
+enforcement actually works server-side, not just that the UI happens to hide a button.
 
 ## Where to look
 
@@ -57,6 +63,11 @@ against a different one) — that command is safe to re-run any time and won't d
 ## What to test
 - **Login**: wrong password/email → clear error, no crash. Session persists on refresh;
   logging out (if a logout control exists) clears it.
+- **Roles**: log in as Viewer and try any action (submit, resubmit, cancel, resolve an
+  exception) — it should be rejected, not just hidden. Log in as Operator and confirm those
+  same actions work but the audit log doesn't. This is enforced by the API itself, so it's
+  worth checking directly (e.g. via the browser's network tab) rather than only by what
+  buttons the UI happens to show for each role.
 - **Jurisdictions**: pick a handful of states with different rules (e.g. California has a
   large daily late penalty and requires a trustee; Missouri has an unusually short 15-day
   deadline) and confirm the numbers shown match `packages/db/src/seed.ts`.

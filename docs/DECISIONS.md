@@ -782,3 +782,32 @@ empty. This is the fifth real gap this one real user's from-scratch run has surf
 (D25–D29 got the app running at all; this is the first one about the running app's actual
 content) — every prior gap was "can I even start this," and this is the first "now that it's
 running, does it look like anything," which turned out to be just as untested.
+
+## D31: seeded OPERATOR and VIEWER demo logins, so role enforcement is actually testable without writing SQL
+
+**Decision:** The seed data has only ever created one user — the ORG_ADMIN demo login —
+even though the API defines and enforces four roles (`org_role`: `ORG_ADMIN`, `OPERATOR`,
+`VIEWER`, `API_CLIENT`) and every write endpoint is gated by `requireRole` (`POST
+/releases`, `/releases/:id/{preflight,submit,resubmit,cancel}`, and
+`/exceptions/:id/resolve` all require `ORG_ADMIN` or `OPERATOR`; `GET /audit-events`
+requires `ORG_ADMIN` specifically). With only one seeded account, that whole permission
+model was untestable through the UI or a real login — the only way to see it was to read
+the route source. Added `operator@demo-title-escrow.example` (`OPERATOR`) and
+`viewer@demo-title-escrow.example` (`VIEWER`), both password `password123`, same bcrypt
+hash as the existing admin login (bcrypt hashes verify on password alone, independent of
+the associated email — confirmed directly with `bcryptjs.compareSync` before relying on
+that rather than assuming it).
+**Why:** Verified live, not just by reading the role-check code: seeded both accounts,
+started the compiled API against a real Postgres, logged in as each over HTTP, and hit real
+endpoints with the resulting tokens. Operator: `GET /audit-events` → `403`; `GET /releases`
+→ `200`; `POST /releases` with an intentionally invalid body → `400` (not `403` —
+confirming the request passed the role check and reached real validation, not that the
+route happened to be misconfigured wide open). Viewer: `GET /releases` → `200`; `POST
+/releases` → `403`; `POST /exceptions/:id/resolve` on a real seeded exception package →
+`403`. Every one of those matched what the route source claims before this was ever run for
+real. `pnpm lint` and `pnpm test` (26/26) re-ran clean afterward, and reseeding a third time
+confirmed still exactly 3 users / 1 per role (idempotent, same pattern as every other seed
+upsert). `docs/QE_QUICKSTART.md` updated with all three logins and a "log in as Viewer and
+confirm the API itself rejects a write" test suggestion — deliberately phrased to check
+server-side enforcement rather than only whether the UI hides a button, since the latter is
+not a security boundary.

@@ -184,6 +184,41 @@ export async function seed(): Promise<void> {
     .onConflict((oc) => oc.columns(["organization_id", "user_id"]).doNothing())
     .execute();
 
+  // Non-admin demo logins (docs/QE_QUICKSTART.md) — same password/hash as the admin
+  // account above (bcrypt hashes verify on password alone, independent of email; verified
+  // directly with bcryptjs.compareSync before relying on this). Lets a tester check the
+  // role gate itself: every write endpoint (`POST /packages`, `/submit`, `/resubmit`,
+  // `/cancel`, `/preflight`, `/exceptions/:id/resolve`) requires ORG_ADMIN or OPERATOR
+  // (apps/api/src/routes/*.ts's `requireRole` calls), while `GET /audit-events` requires
+  // ORG_ADMIN specifically — OPERATOR should be able to do everything a normal user needs
+  // day to day except see the audit trail, and VIEWER should be able to read every page but
+  // have every one of those write actions rejected by the API (there's no client-side-only
+  // check to bypass; the server enforces this even if a button isn't hidden in the UI).
+  console.log("[seed] Upserting demo operator and viewer users...");
+  const demoOperatorId = "00000000-0000-0000-0000-0000000000f2";
+  const demoViewerId = "00000000-0000-0000-0000-0000000000f3";
+  const nonAdminUsers = [
+    { id: demoOperatorId, email: "operator@demo-title-escrow.example", fullName: "Demo Operator", role: "OPERATOR" as const },
+    { id: demoViewerId, email: "viewer@demo-title-escrow.example", fullName: "Demo Viewer", role: "VIEWER" as const },
+  ];
+  for (const u of nonAdminUsers) {
+    await db
+      .insertInto("users")
+      .values({
+        id: u.id,
+        email: u.email,
+        password_hash: "$2b$10$bxDvZTriIDad9qTrIV5t6.ppUth8B6bFGOI1xYU5Y1ftG0bD8xokS",
+        full_name: u.fullName,
+      })
+      .onConflict((oc) => oc.column("id").doUpdateSet((eb) => ({ email: eb.ref("excluded.email") })))
+      .execute();
+    await db
+      .insertInto("org_memberships")
+      .values({ organization_id: orgId, user_id: u.id, role: u.role })
+      .onConflict((oc) => oc.columns(["organization_id", "user_id"]).doNothing())
+      .execute();
+  }
+
   // Demo integration connections (docs/REQUIREMENTS_MATRIX.md #30 — connector health UI).
   // These mirror the adapters this project actually has: the three mock eRecording
   // vendors from packages/adapters-erecording (Phase 5), plus the LOS/TMS and document

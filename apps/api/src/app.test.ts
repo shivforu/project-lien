@@ -28,4 +28,9 @@ describe("app", () => {
     const res = await request(app).get("/health");
     expect(res.headers["x-request-id"]).toBeTruthy();
   });
+
+  it("reflects the request origin for CORS when CORS_ORIGIN is unset (dev-only default — docs/DECISIONS.md D19)", async () => {
+    const res = await request(app).get("/health").set("Origin", "https://example.test");
+    expect(res.headers["access-control-allow-origin"]).toBe("https://example.test");
+  });
 });

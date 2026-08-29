@@ -14,6 +14,11 @@ export default defineConfig({
       JWT_ACCESS_SECRET: "test-access-secret",
       JWT_REFRESH_SECRET: "test-refresh-secret",
       WEBHOOK_SIGNING_SECRET: "test-webhook-secret",
+      // Generous test-wide defaults so ordinary functional tests never spuriously trip the
+      // Phase 13 rate limiters as the suite grows — the limiters' actual behavior is
+      // covered deliberately, with its own low per-file override, in rate-limit.test.ts.
+      RATE_LIMIT_LOGIN_MAX: "1000",
+      RATE_LIMIT_API_MAX: "10000",
     },
   },
 });

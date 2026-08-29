@@ -14,12 +14,21 @@ export interface AccessTokenClaims {
  * same JWT with a longer expiry and a different signing secret, so a leaked access token
  * cannot be replayed as a refresh token.
  */
-export function signAccessToken(claims: AccessTokenClaims, secret: string): string {
-  return jwt.sign(claims, secret, { expiresIn: "15m" });
+// jsonwebtoken's own types constrain `expiresIn` to a template-literal `StringValue`
+// (from the `ms` package) that a plain runtime `string` can't statically satisfy, even
+// though the value is only ever a config-supplied duration string. The env schema
+// enforces that shape at runtime (`JWT_ACCESS_TTL`/`JWT_REFRESH_TTL` — see
+// packages/shared-config/src/env.ts), so the cast here is safe.
+function asExpiresIn(ttl: string): jwt.SignOptions["expiresIn"] {
+  return ttl as jwt.SignOptions["expiresIn"];
 }
 
-export function signRefreshToken(claims: AccessTokenClaims, secret: string): string {
-  return jwt.sign(claims, secret, { expiresIn: "7d" });
+export function signAccessToken(claims: AccessTokenClaims, secret: string, ttl = "15m"): string {
+  return jwt.sign(claims, secret, { expiresIn: asExpiresIn(ttl) });
+}
+
+export function signRefreshToken(claims: AccessTokenClaims, secret: string, ttl = "7d"): string {
+  return jwt.sign(claims, secret, { expiresIn: asExpiresIn(ttl) });
 }
 
 export class InvalidTokenError extends Error {

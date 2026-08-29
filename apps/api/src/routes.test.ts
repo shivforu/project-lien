@@ -88,6 +88,31 @@ describe("POST /api/v1/auth/login", () => {
   });
 });
 
+describe("POST /api/v1/auth/refresh", () => {
+  it("exchanges a valid refresh token for a new access token that actually works", async () => {
+    const login = await request(app).post("/api/v1/auth/login").send({ email: "admin@example.com", password: "correct horse battery staple" });
+    const refreshed = await request(app).post("/api/v1/auth/refresh").send({ refreshToken: login.body.refreshToken });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.accessToken).toBeTruthy();
+    expect(refreshed.body.refreshToken).toBeTruthy();
+
+    const usedFresh = await request(app).get("/api/v1/releases").set("Authorization", `Bearer ${refreshed.body.accessToken}`);
+    expect(usedFresh.status).toBe(200);
+  });
+
+  it("rejects an access token presented as a refresh token (different signing secret)", async () => {
+    const login = await request(app).post("/api/v1/auth/login").send({ email: "admin@example.com", password: "correct horse battery staple" });
+    const res = await request(app).post("/api/v1/auth/refresh").send({ refreshToken: login.body.accessToken });
+    expect(res.status).toBe(401);
+    expect(res.body.error.code).toBe("INVALID_REFRESH_TOKEN");
+  });
+
+  it("rejects a garbage refresh token", async () => {
+    const res = await request(app).post("/api/v1/auth/refresh").send({ refreshToken: "not-a-real-token" });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("GET /api/v1/jurisdictions/:stateCode", () => {
   it("resolves state + county when countyFips is given", async () => {
     const res = await request(app).get("/api/v1/jurisdictions/CA?countyFips=06037").set("Authorization", `Bearer ${adminToken}`);

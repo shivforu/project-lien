@@ -420,10 +420,57 @@ around them.
 **NEXT STEP:** Phase 13 — security hardening + observability.
 
 ## Phase 13 — Security hardening + observability
-- [ ] Not started
+- [x] Reconciled docs/SECURITY.md (a Phase 1 target-architecture doc) against the actual
+      code and fixed every mismatch found, rather than leaving an aspirational document
+      standing next to a different reality (docs/DECISIONS.md D19):
+      - Rate limiting was documented but didn't exist — added `express-rate-limit`
+        (`POST /auth/login` tightly limited, the rest of `/api/v1` more loosely)
+      - CORS was wide open and undocumented as such — added a real `CORS_ORIGIN` allowlist
+      - A refresh token was issued at login since Phase 1 but nothing ever consumed it —
+        added `POST /api/v1/auth/refresh`
+      - `JWT_ACCESS_TTL`/`JWT_REFRESH_TTL` were documented as configurable but hardcoded —
+        wired to env, with `.env.example`'s stale `30d` refresh placeholder corrected to
+        the actual `7d`
+      - The pino log-redaction config had never been exercised by a test — added one
+        (`logger.test.ts`, using a new optional `destination` param on `createLogger`)
+      - A production process could start with every secret still at its insecure
+        `.env.example` default — added a fail-fast startup check
+      - Corrected overclaims in docs/SECURITY.md itself (argon2id -> actual bcryptjs per
+        D2; "refresh tokens stored hashed" -> actual stateless/unrevoked; API-key auth for
+        `API_CLIENT` -> not built; a malware-scan interface implied wired into an upload
+        path -> no upload endpoint exists to call it from)
 
-## Phase 13 — Security hardening + observability
-- [ ] Not started
+**STATUS:** DONE
+**FILES CREATED:** `apps/api/src/rate-limit.test.ts`, `apps/api/src/cors.test.ts`,
+`apps/api/src/auth/jwt.test.ts`, `packages/shared-config/src/logger.test.ts`.
+**FILES MODIFIED:** `packages/shared-config/src/env.ts` (+test — `CORS_ORIGIN`,
+`RATE_LIMIT_*`, `JWT_ACCESS_TTL`/`JWT_REFRESH_TTL`, `assertNoInsecureDefaultsInProduction`,
+`resetEnvCacheForTests`), `packages/shared-config/src/logger.ts` (optional `destination`
+param for testability), `packages/shared-config/src/index.ts` (new export);
+`apps/api/src/app.ts` (CORS allowlist wiring, login + general rate limiters);
+`apps/api/src/routes/auth.ts` (`POST /refresh`, TTLs passed through);
+`apps/api/src/auth/jwt.ts` (configurable TTL params); `apps/api/src/routes.test.ts` (new
+refresh-flow tests); `apps/api/vitest.config.ts`, `apps/worker/vitest.config.ts` (generous
+test-wide rate-limit env defaults so unrelated tests can't be spuriously rate-limited as
+the suites grow); `.env.example` (corrected/added the vars above); `docs/SECURITY.md`
+(rewritten against the real implementation); `docs/DECISIONS.md` (D19).
+**TESTS RUN:** `pnpm --filter @project-lien/shared-config test`,
+`pnpm --filter @project-lien/api test`, a full workspace
+`pnpm turbo run build test lint --concurrency=1`.
+**TEST RESULTS:** 44/44 turbo tasks passing. `shared-config`: 12/12 (3 files, incl. the new
+`logger.test.ts` and expanded `env.test.ts`). `api`: 34/34 across 5 files (up from 20/2),
+all new tests exercising real behavior (an actual 429 after the configured limit, an actual
+non-reflected disallowed CORS origin, an actual decoded JWT `exp` claim matching a custom
+TTL, an actual working end-to-end refresh-token exchange against a real protected route).
+**KNOWN LIMITATIONS:** No server-side refresh-token revocation list (a leaked or
+should-be-invalidated refresh token remains valid until its own expiry); no API-key
+authentication for the `API_CLIENT` role / developer-API area (docs/REQUIREMENTS_MATRIX.md
+#31, unchanged from before this phase); no real malware-scanning, HSM/KMS, WAF, or CI
+secret-scan step — all explicitly named as deferred in docs/SECURITY.md rather than
+fabricated. Rate limiting uses an in-memory per-process store (fine for this single-process
+build; would need a shared store like Redis behind a load balancer with multiple API
+instances — noted for Phase 14/production).
+**NEXT STEP:** Phase 14 — Docker / deployment / CI.
 
 ## Phase 14 — Docker / deployment / CI
 - [ ] Not started (docker-compose file itself lands in Phase 1; this phase is CI +

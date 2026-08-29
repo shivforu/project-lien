@@ -296,3 +296,56 @@ that class of bug. All three fixes are covered by `apps/worker/src/e2e-scenarios
 (scenario C for the first two, the full scenario suite for the third, since every scenario
 after A depends on `/preflight` and `/submit` behaving correctly from a non-DRAFT status
 at least once).
+
+## D19: Phase 13 security hardening — real gaps found by checking docs/SECURITY.md against the code
+**Decision:** docs/SECURITY.md was written early (Phase 1) as a target architecture and
+never reconciled against what actually got built. Phase 13 read every claim in it against
+the real code and either implemented the gap for real or corrected the doc to say what
+actually exists — never left a claim standing that wasn't true. Concretely:
+- **Rate limiting was documented but did not exist.** Added `express-rate-limit`: a tight
+  window on `POST /auth/login` (`RATE_LIMIT_LOGIN_MAX`/`_WINDOW_MS`, default 10/15min) and
+  a looser one across the rest of `/api/v1` (`RATE_LIMIT_API_MAX`/`_WINDOW_MS`, default
+  300/min), both configurable via env. Verified with a real request-count test
+  (`apps/api/src/rate-limit.test.ts`, using a low test-only override so the test doesn't
+  need to fire 10+ requests) rather than just asserting the middleware is mounted.
+- **CORS was wide open (`cors()` with no options), undocumented as such.** Added
+  `CORS_ORIGIN` (comma-separated allowlist; `*` — the default — reflects any origin,
+  matching the prior behavior, and is dev-only). Verified with a real test
+  (`apps/api/src/cors.test.ts`) that an origin outside the configured allowlist does not
+  get reflected back.
+- **A refresh token was issued at login but nothing ever consumed it.** `POST
+  /api/v1/auth/refresh` didn't exist. Added it: verifies the refresh token, re-derives
+  claims from the database (not from the token's own embedded claims, so a role change or
+  deactivation since the token was issued takes effect immediately), and issues a fresh
+  access/refresh pair. Refresh tokens remain stateless JWTs with no server-side revocation
+  list — a real, named gap (docs/SECURITY.md), not silently claimed as solved.
+- **JWT TTLs were hardcoded (`15m`/`7d`) despite `.env.example` documenting
+  `JWT_ACCESS_TTL`/`JWT_REFRESH_TTL` as configurable since Phase 1.** Wired both into
+  `packages/shared-config/src/env.ts` (validated against a duration-string regex) and
+  through to `signAccessToken`/`signRefreshToken`. Also fixed `.env.example`'s
+  `JWT_REFRESH_TTL` placeholder, which said `30d` while the actual hardcoded value had
+  always been `7d`. Verified with `apps/api/src/auth/jwt.test.ts`, which decodes a signed
+  token's `exp`/`iat` claims rather than just checking the function returns a string.
+- **The pino log-redaction config existed but had never been exercised by a test.** Added
+  `packages/shared-config/src/logger.test.ts`, which captures real emitted JSON (via a new
+  optional `destination` stream parameter on `createLogger`) and asserts sensitive fields
+  are actually censored — this is the same "claimed but unverified" class of gap the
+  project mandate exists to catch.
+- **A production process could start with every secret still at its `.env.example`
+  placeholder value.** Added `assertNoInsecureDefaultsInProduction` to
+  `packages/shared-config/src/env.ts`: `loadEnv()` throws at startup if `NODE_ENV
+  === "production"` and any of `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`/
+  `WEBHOOK_SIGNING_SECRET`/`STORAGE_SECRET_KEY` is still `dev-only-change-me-*` or
+  `minioadmin`. This is a fail-fast startup check, not a runtime guard — it costs nothing
+  in the request path.
+- **docs/SECURITY.md itself overclaimed in several places**: argon2id (actual: bcryptjs,
+  per D2), "refresh tokens stored hashed" (actual: stateless, unrevoked), API-key auth for
+  API clients (actual: not built, `API_CLIENT` is a defined role with nothing behind it),
+  a malware-scan interface implied to be wired into an upload path (actual: no document
+  upload endpoint exists to call it from). All corrected in place rather than left
+  standing.
+**Why:** A security document that describes a system more hardened than the one actually
+running is worse than no document at all — it gives false assurance. This phase's job was
+to make the real gaps either closed (rate limiting, CORS, refresh flow, TTL config,
+redaction verification, secret fail-fast) or explicitly named (revocation, API keys,
+malware scanning, mTLS, CI secret-scanning), never left ambiguous.

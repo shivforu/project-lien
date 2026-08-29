@@ -1,6 +1,7 @@
 import express, { type Express, type NextFunction, type Response } from "express";
 import helmet from "helmet";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -30,8 +31,32 @@ export function createApp(): Express {
   const env = loadEnv();
 
   app.use(helmet());
-  app.use(cors());
+  // CORS_ORIGIN is a comma-separated allowlist (docs/DECISIONS.md D19); "*" — the default,
+  // dev-only value — reflects any origin, matching this middleware's previous unconfigured
+  // behavior. A deployed environment is expected to set this to its actual web app
+  // origin(s).
+  const corsOrigins = env.CORS_ORIGIN === "*" ? true : env.CORS_ORIGIN.split(",").map((o) => o.trim());
+  app.use(cors({ origin: corsOrigins }));
   app.use(express.json({ limit: "25mb" })); // PRIA/base64 document payloads
+
+  // Rate limiting (docs/SECURITY.md, docs/DECISIONS.md D19): a tighter window on
+  // `/auth/login` specifically to blunt credential-stuffing/brute-force attempts (a failed
+  // login is cheap to retry otherwise, since bcrypt's own cost factor is the only friction),
+  // plus a looser general limit across the rest of the versioned API surface.
+  const loginRateLimiter = rateLimit({
+    windowMs: env.RATE_LIMIT_LOGIN_WINDOW_MS,
+    limit: env.RATE_LIMIT_LOGIN_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "Too many login attempts. Try again later." } },
+  });
+  const apiRateLimiter = rateLimit({
+    windowMs: env.RATE_LIMIT_API_WINDOW_MS,
+    limit: env.RATE_LIMIT_API_MAX,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: { code: "RATE_LIMITED", message: "Too many requests. Try again later." } },
+  });
 
   // Correlation id on every request — see docs/SECURITY.md / docs/ARCHITECTURE.md.
   app.use((req, res, next) => {
@@ -65,10 +90,13 @@ export function createApp(): Express {
     res.type("application/json").send(spec);
   });
 
-  // /auth/login is the one unauthenticated route on the v1 surface.
+  // /auth/login and /auth/refresh are the two unauthenticated routes on the v1 surface
+  // (a refresh token is presented in place of a Bearer access token, by design).
+  app.use("/api/v1/auth/login", loginRateLimiter);
   app.use("/api/v1/auth", createAuthRouter(db, env));
 
   // Everything past this point requires a valid access token (docs/REQUIREMENTS_MATRIX.md #33).
+  app.use("/api/v1", apiRateLimiter);
   app.use("/api/v1", requireAuth(env.JWT_ACCESS_SECRET));
 
   app.use("/api/v1/jurisdictions", createJurisdictionsRouter(db));

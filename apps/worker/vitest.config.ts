@@ -15,6 +15,11 @@ export default defineConfig({
       JWT_ACCESS_SECRET: "test-access-secret",
       JWT_REFRESH_SECRET: "test-refresh-secret",
       WEBHOOK_SIGNING_SECRET: "test-webhook-secret",
+      // e2e-scenarios.test.ts boots the real API app (Phase 12) and logs in once per
+      // scenario — well under Phase 13's default login rate limit today, but this keeps
+      // that test suite from becoming flaky as more scenarios are added later.
+      RATE_LIMIT_LOGIN_MAX: "1000",
+      RATE_LIMIT_API_MAX: "10000",
     },
   },
 });

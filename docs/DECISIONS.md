@@ -626,3 +626,43 @@ confusing failure. Both bugs share the same root cause as D25: this project's lo
 path had 15 phases of rigorous internal self-verification but had never actually been run,
 start to finish, by anyone other than the process that wrote it — external verification by
 a real user on a real machine is what caught all three issues in this pair of decisions.
+
+## D27: `pnpm dev` crashed api and worker with `MODULE_NOT_FOUND` on a genuinely fresh clone — internal workspace packages were never built first
+
+**Decision:** Found immediately after D26, on the very next step of the same real user's
+setup: with the port and test-database issues fixed, `pnpm dev` still failed — `api` and
+`worker` both crashed instantly with `Error: Cannot find module
+'.../node_modules/@project-lien/shared-config/dist/index.js'`, while `web` started up fine,
+which made the browser-side symptom look unrelated (`net::ERR_CONNECTION_REFUSED` on
+`/api/v1/auth/login`, initially mistaken for a CORS issue — it wasn't; a CORS failure still
+gets a response for the browser to block, while `ERR_CONNECTION_REFUSED` means nothing was
+listening on port 4000 at all, i.e. the api process had already died). Root cause: `api`
+and `worker` both depend on several internal workspace packages (`@project-lien/db`,
+`shared-config`, the `domain-*` packages, `adapters-erecording`, ...) via each one's
+`"main": "dist/index.js"` — a real, compiled JS entry point, not TypeScript source — but
+`turbo.json`'s `dev` task had no `dependsOn`, so `pnpm dev` never built any of them first.
+This had never surfaced before because every environment this project had been developed
+and verified in up to this point already had `dist/` populated from an earlier `pnpm build`
+or `pnpm test` run in the same long-lived checkout — a truly fresh clone (`pnpm install`
+followed immediately by `pnpm dev`, exactly as docs/LOCAL_DEVELOPMENT.md's first-time setup
+describes) had never actually been exercised. `web` was never affected because Next.js's
+dev server talks to the API over plain HTTP rather than importing any of these packages
+directly, which is exactly what let it start cleanly and mask the other two processes'
+crash. Fixed by adding `"dependsOn": ["^build"]` to `turbo.json`'s `dev` task — this builds
+only a package's upstream dependencies before its own dev process starts, so `tsx watch`'s
+and `next dev`'s live-reload of api/web/worker's *own* source is untouched; editing a
+dependency package's source during a `pnpm dev` session still requires re-running `pnpm
+build` for that package, same as before.
+**Why:** Verified by simulating a genuinely fresh clone for the first time in this
+project's history: `rm -rf` every package's `dist/` and Next's `.next/` plus turbo's own
+cache (not `pnpm clean`, which — also newly documented here — additionally does `rm -rf`
+the root `node_modules`, requiring a full `pnpm install` to recover from, which is how this
+was discovered), then `pnpm dev` from that state. Before the fix: `api`/`worker` crashed
+with `MODULE_NOT_FOUND` in seconds. After: turbo's log showed `@project-lien/db:build`,
+`shared-config:build`, and every other internal dependency building first, followed by
+`api listening` on port 4000 and `worker starting`, confirmed via `lsof -iTCP:4000
+-sTCP:LISTEN` actually showing a listener. Full `pnpm typecheck` (27/27) and `pnpm test`
+(26/26) re-run clean afterward. Same underlying lesson as D25/D26: three real, previously
+invisible setup bugs, found back to back, only because one real user finally ran this
+project's own documented instructions end to end on a machine that had never run them
+before.

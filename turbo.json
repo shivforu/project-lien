@@ -14,6 +14,17 @@
       "outputs": ["dist/**", ".next/**"]
     },
     "dev": {
+      // `api`/`worker` import several internal workspace packages (@project-lien/db,
+      // shared-config, the domain-* packages, ...) via their compiled "main": "dist/..."
+      // entry point, not their TS source — tsx/node module resolution can't see through
+      // that to packages/*/src. Without this, `pnpm dev` on a genuinely fresh clone (or
+      // after `pnpm clean`) crashes both api and worker on boot with `MODULE_NOT_FOUND`
+      // for any such package whose dist/ doesn't exist yet, while web (which doesn't
+      // import them directly — it only talks to the API over HTTP) starts up fine and
+      // masks the failure (docs/DECISIONS.md D27). `^build` only builds this package's
+      // dependencies, not the package's own dev-mode app, so this doesn't fight tsx
+      // watch's/next dev's own live-reload of api/web/worker's own source.
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },

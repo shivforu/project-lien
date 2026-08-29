@@ -22,9 +22,11 @@ variables another way).
 ## Common commands
 ```bash
 pnpm build          # build all packages/apps
-pnpm clean           # rm -rf each package's dist/.next + tsc's incremental-build cache
-                      # (genuinely does this as of Phase 15 — see docs/DECISIONS.md D24;
-                      # if you're on a checkout from before that fix, `git pull` first)
+pnpm clean           # rm -rf each package's dist/.next + tsc's incremental-build cache,
+                      # THEN rm -rf the root node_modules too (see the root package.json
+                      # script) — `pnpm install` again afterwards. `pnpm dev`/`pnpm build`
+                      # rebuild internal packages' dist/ for you (docs/DECISIONS.md D27),
+                      # but nothing recreates node_modules except a real install.
 pnpm typecheck       # tsc --noEmit across the workspace
 pnpm lint            # eslint across the workspace
 pnpm test            # unit + integration tests (spins up a throwaway test DB)

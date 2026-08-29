@@ -840,3 +840,43 @@ reload; reloaded the page and confirmed the same state survived (session read fr
 redirected to `/login`, the nav reverted to plain "Login", and `localStorage`'s
 `project-lien-session` key was actually gone, not just visually hidden. `pnpm typecheck`
 and `pnpm lint` (`apps/web`) both clean. No API or schema changes — this is web-only.
+
+## D33: rewrote `docs/QE_QUICKSTART.md` into a complete system reference, since the outsourced QE has no other context — surfaced two previously-undocumented gaps in the process
+
+**Decision:** The QE quickstart had grown incrementally (what the system is, how to log in,
+a page/package table) but never covered the full lifecycle, every API endpoint, every
+background job, or an honest account of what's built versus not — insufficient for handing
+this system to a third-party QE team with zero other context. Rewrote it end to end,
+verifying every claim against the actual running source rather than restating other docs
+from memory: the 17-state machine (`packages/domain-workflow/src/state-machine.ts`), all 9
+API route files, all 5 worker job handlers, all 6 web pages (confirmed there are exactly 3
+interactive elements in the entire UI — login, the Exceptions page's two buttons, and the
+Jurisdictions lookup form), the 4 roles' enforcement (`requireRole` middleware), and
+`docs/EXTERNAL_DEPENDENCIES.md`'s real-vs-mock table.
+That verification surfaced two gaps nobody had written down before: (1) `runPreflight` is
+always called with `trusteeName: null` and `witnessNames: []` hardcoded
+(`apps/api/src/routes/package-actions.ts`, `apps/worker/src/handlers/submit-package.ts`) —
+there is no field anywhere to set either, so any package in one of the ~13 seeded states
+with `trusteeRequired: true` (including California) will *always* fail pre-flight with
+`TRUSTEE_MISSING`, permanently, confirmed by cross-referencing every seeded state's
+`trusteeRequired` flag against `packages/adapters-erecording`'s test-only "TR" jurisdiction,
+which exists specifically to test this rejection path (Scenario B) rather than as a bug; and
+(2) a package whose county resolves to the `MANUAL` eRecording network (Fulton County, GA —
+one of the 5 seeded counties) will dead-letter permanently and non-recoverably at submission,
+since `erecordingRouter.resolve("MANUAL")` throws synchronously
+(`packages/adapters-erecording/src/router.ts`, confirmed via its own test asserting exactly
+this) and nothing catches it in `submit-package.ts` before the job queue's generic retry
+mechanism takes over and exhausts retries identically every time.
+**Why:** An outsourced tester with no other context, hitting either of these organically,
+would burn real time treating a known, tracked limitation as a mystery bug — or filing one
+against `docs/REQUIREMENTS_MATRIX.md` items already covering it (#28 for the missing
+signature/notary capture, #16 for deferred direct-to-county networks). Documenting them
+plainly, plus giving exact reusable seeded loan/property UUIDs (since `POST /releases` has
+no way to create a loan or property, and the ID naming pattern needed hand-verifying byte by
+byte — `node -e` confirmed all five are valid 36-character UUIDs before publishing them) and
+a concrete curl-based recipe for exercising submission → completion despite the
+signature/notary gap, turns "go figure this system out" into a document that answers what a
+tester will actually run into. Verified every table entry (trustee flags, deadlines, county
+networks, role/endpoint pairings) against the seed/source files directly rather than
+transcribing from `docs/ARCHITECTURE.md`/`docs/API.md`, since those are drafts and had
+already drifted from the real mount paths and implemented routes earlier in this project.

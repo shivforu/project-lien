@@ -28,22 +28,31 @@ so it can see and act on everything.
 | Page | URL | What you'll find |
 |---|---|---|
 | Home | `/` | Landing page with nav links. |
-| Queue | `/queue` | List of recording packages (releases) for the org, with status/deadline. Click a row for package detail. **Starts empty** — see note below. |
+| Queue | `/queue` | 5 seeded demo packages across different statuses (draft, in-flight, recorded/complete, rejected, needs resubmission). Click a row for package detail. |
 | Package detail | `/queue/<id>` | One package's status, document type, jurisdiction, county tracking number, recorded instrument number if recorded. |
-| Exceptions | `/exceptions` | Packages that failed pre-flight/rejected by the county, and background jobs that failed after retrying. **Starts empty on fresh data.** |
-| Jurisdictions | `/jurisdictions` | Look up any US state's recording rules — document type required, statutory deadline, penalty for late release, notary requirements, etc. Fully populated for all 50 states — this is the best page to explore first. |
+| Exceptions | `/exceptions` | 2 seeded packages needing operator attention (rejected / resubmission-required) plus 1 seeded dead-lettered background job. |
+| Jurisdictions | `/jurisdictions` | Look up any US state's recording rules — document type required, statutory deadline, penalty for late release, notary requirements, etc. Fully populated for all 50 states. |
 | Integrations | `/integrations` | Health status of the 3 mock eRecording vendor connections (Simplifile, CSC, ePN) plus the LOS and storage adapter stubs. |
 
-## Important: the queue starts empty
-The seed data creates the demo org, your login, all 50 states' jurisdiction rules, and the
-3 mock vendor connections — but **no sample recording packages**. So Queue and Exceptions
-will look empty right after setup; that's expected, not a bug. To see packages moving
-through the real lifecycle (submitted → county processing → recorded, rejections,
-resubmission, fee reconciliation with over/short payment), ask engineering to either:
-- point you at the automated scenario suite (`apps/worker/src/e2e-scenarios.test.ts`,
-  scenarios A–J), which exercises every one of these paths end to end and is the most
-  complete reference for "what should happen," or
-- seed a few demo packages into your local database for you to click through live.
+## The 5 seeded demo packages
+| Identifier | State/County | Status | What it shows |
+|---|---|---|---|
+| REL-2026-0001 | CA / Los Angeles | COMPLETE | Full happy path — submitted, recorded, fee charged. |
+| REL-2026-0002 | TX / Collin | COUNTY_PROCESSING | In flight, plus the one seeded dead-lettered job (Exceptions page). |
+| REL-2026-0003 | FL / Miami-Dade | REJECTED | Has a rejection reason — shows in Exceptions. |
+| REL-2026-0004 | NY / Kings | RESUBMISSION_REQUIRED | Also shows in Exceptions, one step further along than a fresh rejection. |
+| REL-2026-0005 | GA / Fulton | DRAFT | Not yet submitted. |
+
+These are static rows (`packages/db/src/seed.ts`) meant for clicking through the UI's read
+screens, not a live simulation — they were never run through the real state machine or
+vendor adapters. If you need to see the actual workflow *behave* (a package really moving
+through submit → poll → reject → resubmit → record → reconcile), the automated scenario
+suite (`apps/worker/src/e2e-scenarios.test.ts`, scenarios A–J) is the real reference; ask
+engineering to walk you through it or its output.
+
+If your Queue/Exceptions still look empty, someone hasn't run `pnpm --filter
+@project-lien/db seed` yet against the database the app is currently pointed at (or ran it
+against a different one) — that command is safe to re-run any time and won't duplicate data.
 
 ## What to test
 - **Login**: wrong password/email → clear error, no crash. Session persists on refresh;
@@ -51,8 +60,9 @@ resubmission, fee reconciliation with over/short payment), ask engineering to ei
 - **Jurisdictions**: pick a handful of states with different rules (e.g. California has a
   large daily late penalty and requires a trustee; Missouri has an unusually short 15-day
   deadline) and confirm the numbers shown match `packages/db/src/seed.ts`.
-- **Queue / package detail / exceptions**: once packages exist, check status colors match
-  reality, deadlines are computed correctly, and a rejected package's reason is visible.
+- **Queue / package detail / exceptions**: check status colors match reality, deadlines are
+  computed correctly, and a rejected package's reason is visible on both the Exceptions
+  list and its own package detail page.
 - **Integrations**: all 3 eRecording vendors should show "Healthy"; the LOS/storage rows
   show "Unknown" (they're interface stubs, not wired to anything real yet — that's expected).
 - **General**: browser back/forward, page refresh mid-session, and resizing — this UI hasn't

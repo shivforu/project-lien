@@ -745,3 +745,40 @@ didn't know about each other's assumptions. Anyone maintaining this repo should 
 `tsconfig.base.json` (and any other file a per-package config `extends`, references, or
 otherwise depends on outside its own directory) as needing a `globalDependencies` entry the
 moment it's introduced, not after a second real user rediscovers the same failure mode.
+
+## D30: seed data never created a single recording package — Queue and Exceptions were empty for every real user, always
+
+**Decision:** Found once the same real user finally got the app running end to end (past
+D25–D29) and logged in: Queue and Exceptions were both empty. `packages/db/src/seed.ts`
+had always created the demo org, the demo login, all 50 states' jurisdiction rules, and the
+mock integration connections — but never a single row in `recording_packages`, `loans`, or
+`properties`. This had never been visible before because every automated test builds its
+own fixtures directly (`apps/worker/src/e2e-scenarios.test.ts` and friends insert exactly
+the rows each scenario needs), so nothing in this project's own test suite ever exercised
+"log in as the seeded demo user and look at the seeded demo data" — the one thing a manual
+tester or a product demo actually does. Added 5 static demo packages to `seed.ts`, one per
+already-seeded demo county, deliberately spanning the statuses the UI branches on: `COMPLETE`
+(CA — full happy path, recorded with a fee charged), `COUNTY_PROCESSING` (TX — in flight,
+paired with one seeded `DEAD_LETTER` job so the Exceptions page's job-exceptions half has
+content too), `REJECTED` (FL), `RESUBMISSION_REQUIRED` (NY — both populate the Exceptions
+page's package-exceptions half), and `DRAFT` (GA — not yet submitted). Each row's
+`statutory_deadline` is computed from a real settlement date using the same calendar-day
+arithmetic as `calculateStatutoryDeadline` (not imported from `@project-lien/domain-jurisdiction`
+directly — that package already depends on `@project-lien/db`, so the reverse import would
+create a cycle Turborepo's `^build` graph can't resolve). These rows are deliberately static
+inserts, not run through `assertTransition`/the job queue/vendor adapters — they exist to
+give a manual tester or a demo something realistic to click through, not to simulate a real
+workflow run; anyone verifying actual state-machine *behavior* still needs the e2e scenario
+suite, which remains the only place packages are driven through real transitions.
+**Why:** Verified for real: seeded against a live Postgres, confirmed all 5
+`recording_packages` rows, their `properties`/`loans`, and the one `DEAD_LETTER`
+`workflow_jobs` row landed with the expected values; re-ran the seed a second time and
+confirmed row counts stayed identical (idempotent, matching every other upsert in this
+file); ran the exact queries `GET /api/v1/exceptions` executes directly against the seeded
+data and confirmed they return precisely the 2 exception packages and 1 dead-lettered job
+expected. Full `pnpm lint` and `pnpm test` (26/26) re-ran clean afterward. `docs/QE_QUICKSTART.md`
+updated to describe the 5 seeded packages instead of warning that Queue/Exceptions start
+empty. This is the fifth real gap this one real user's from-scratch run has surfaced
+(D25–D29 got the app running at all; this is the first one about the running app's actual
+content) — every prior gap was "can I even start this," and this is the first "now that it's
+running, does it look like anything," which turned out to be just as untested.

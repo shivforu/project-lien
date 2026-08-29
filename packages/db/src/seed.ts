@@ -220,6 +220,232 @@ export async function seed(): Promise<void> {
       .execute();
   }
 
+  // Demo recording packages (docs/QE_QUICKSTART.md): without these, a fresh seed leaves
+  // Queue and Exceptions genuinely empty — everything above only creates the org, the
+  // login, jurisdiction rules, and integration connections, never a single package. That
+  // was fine for automated tests (which build their own fixtures — apps/worker's
+  // e2e-scenarios.test.ts is the actual end-to-end lifecycle reference) but left a real QE
+  // with nothing to click through. These five are static, pre-set rows spanning the
+  // statuses the UI actually branches on — they are NOT run through the real state
+  // machine/vendor adapters (assertTransition, the job queue, etc. never touch them), so
+  // don't treat them as a substitute for the e2e scenario suite when verifying workflow
+  // *behavior* — only for exercising the UI's read screens against realistic-looking data.
+  // One per already-seeded demo county so each also shows a different state's jurisdiction
+  // rule (deadline days, doc type) actually reflected in its package.
+  console.log("[seed] Upserting demo recording packages...");
+  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000);
+  const addDays = (date: Date, n: number) => {
+    const d = new Date(date.getTime());
+    d.setUTCDate(d.getUTCDate() + n);
+    return d;
+  };
+
+  interface DemoPackageSeed {
+    n: number; // 1-5, drives every deterministic id/number below
+    stateCode: string;
+    countyFips: string;
+    docType: DocType;
+    deadlineDays: number;
+    borrowerName: string;
+    address: string;
+    city: string;
+    zip: string;
+    unpaidPrincipalCents: number;
+    status: string;
+    settlementDaysAgo: number;
+    submitted: boolean;
+    recorded: boolean;
+    rejectionReason: string | null;
+    recordingFeeChargedCents: number | null;
+  }
+
+  const demoPackages: DemoPackageSeed[] = [
+    {
+      n: 1,
+      stateCode: "CA",
+      countyFips: "06037",
+      docType: "DEED_OF_RECONVEYANCE",
+      deadlineDays: 30,
+      borrowerName: "Maria Gonzalez",
+      address: "1420 Sunset Blvd",
+      city: "Los Angeles",
+      zip: "90026",
+      unpaidPrincipalCents: 38500000,
+      status: "COMPLETE",
+      settlementDaysAgo: 45,
+      submitted: true,
+      recorded: true,
+      rejectionReason: null,
+      recordingFeeChargedCents: 8400, // 7500 base + 3 pages * 300
+    },
+    {
+      n: 2,
+      stateCode: "TX",
+      countyFips: "48085",
+      docType: "RELEASE_OF_LIEN",
+      deadlineDays: 60,
+      borrowerName: "James Whitfield",
+      address: "912 Preston Rd",
+      city: "Plano",
+      zip: "75093",
+      unpaidPrincipalCents: 27200000,
+      status: "COUNTY_PROCESSING",
+      settlementDaysAgo: 10,
+      submitted: true,
+      recorded: false,
+      rejectionReason: null,
+      recordingFeeChargedCents: null,
+    },
+    {
+      n: 3,
+      stateCode: "FL",
+      countyFips: "12086",
+      docType: "SATISFACTION_OF_MORTGAGE",
+      deadlineDays: 60,
+      borrowerName: "Aisha Thompson",
+      address: "3301 NE 1st Ave",
+      city: "Miami",
+      zip: "33137",
+      unpaidPrincipalCents: 41200000,
+      status: "REJECTED",
+      settlementDaysAgo: 20,
+      submitted: true,
+      recorded: false,
+      rejectionReason: "County rejected: notary acknowledgment is missing the county of execution.",
+      recordingFeeChargedCents: null,
+    },
+    {
+      n: 4,
+      stateCode: "NY",
+      countyFips: "36047",
+      docType: "SATISFACTION_OF_MORTGAGE",
+      deadlineDays: 30,
+      borrowerName: "David Chen",
+      address: "88 Livingston St",
+      city: "Brooklyn",
+      zip: "11201",
+      unpaidPrincipalCents: 61500000,
+      status: "RESUBMISSION_REQUIRED",
+      settlementDaysAgo: 18,
+      submitted: true,
+      recorded: false,
+      rejectionReason: "Original submission rejected for an incorrect legal description; corrected copy prepared and ready to resubmit.",
+      recordingFeeChargedCents: null,
+    },
+    {
+      n: 5,
+      stateCode: "GA",
+      countyFips: "13121",
+      docType: "CANCELLATION_OF_SECURITY_DEED",
+      deadlineDays: 60,
+      borrowerName: "Robert Jackson",
+      address: "245 Peachtree Center Ave",
+      city: "Atlanta",
+      zip: "30303",
+      unpaidPrincipalCents: 19800000,
+      status: "DRAFT",
+      settlementDaysAgo: 3,
+      submitted: false,
+      recorded: false,
+      rejectionReason: null,
+      recordingFeeChargedCents: null,
+    },
+  ];
+
+  for (const p of demoPackages) {
+    const propertyId = `00000000-0000-0000-0000-10000000000${p.n}`;
+    const loanId = `00000000-0000-0000-0000-20000000000${p.n}`;
+    const packageId = `00000000-0000-0000-0000-30000000000${p.n}`;
+    const settlementDate = daysAgo(p.settlementDaysAgo);
+    const statutoryDeadline = addDays(settlementDate, p.deadlineDays);
+
+    await db
+      .insertInto("properties")
+      .values({
+        id: propertyId,
+        organization_id: orgId,
+        parcel_number: `PARCEL-${p.n.toString().padStart(4, "0")}`,
+        address_line1: p.address,
+        city: p.city,
+        state_code: p.stateCode,
+        zip_code: p.zip,
+        county_fips: p.countyFips,
+        county_name: p.city,
+      })
+      .onConflict((oc) => oc.column("id").doUpdateSet((eb) => ({ address_line1: eb.ref("excluded.address_line1") })))
+      .execute();
+
+    await db
+      .insertInto("loans")
+      .values({
+        id: loanId,
+        organization_id: orgId,
+        loan_number: `LN-2026-${p.n.toString().padStart(4, "0")}`,
+        property_id: propertyId,
+        unpaid_principal_cents: p.unpaidPrincipalCents,
+        interest_rate_bps: 650,
+        borrower_name: p.borrowerName,
+        status: p.recorded ? "RELEASED" : "PAYOFF_REQUESTED",
+      })
+      .onConflict((oc) => oc.column("id").doUpdateSet((eb) => ({ status: eb.ref("excluded.status") })))
+      .execute();
+
+    await db
+      .insertInto("recording_packages")
+      .values({
+        id: packageId,
+        organization_id: orgId,
+        package_identifier: `REL-2026-${p.n.toString().padStart(4, "0")}`,
+        loan_id: loanId,
+        property_id: propertyId,
+        state_code: p.stateCode,
+        county_fips: p.countyFips,
+        status: p.status as never,
+        document_type: p.docType,
+        statutory_deadline: statutoryDeadline,
+        rejection_reason: p.rejectionReason,
+        county_tracking_number: p.submitted ? `CTN-${p.stateCode}-${p.n}` : null,
+        recorded_book: p.recorded ? "4021" : null,
+        recorded_page: p.recorded ? "0187" : null,
+        recorded_instrument_number: p.recorded ? `2026-${p.n}00456` : null,
+        recording_fee_charged_cents: p.recordingFeeChargedCents,
+        submitted_at: p.submitted ? addDays(settlementDate, 2) : null,
+        recorded_at: p.recorded ? addDays(settlementDate, 10) : null,
+        completed_at: p.recorded ? addDays(settlementDate, 11) : null,
+      })
+      .onConflict((oc) => oc.column("id").doUpdateSet((eb) => ({
+        status: eb.ref("excluded.status"),
+        rejection_reason: eb.ref("excluded.rejection_reason"),
+      })))
+      .execute();
+  }
+
+  // One dead-lettered job on the still-in-flight Texas package (#2) — the second half of
+  // the Exceptions page (GET /api/v1/exceptions's jobExceptions), which packageExceptions
+  // above (REJECTED/RESUBMISSION_REQUIRED packages #3/#4) don't cover. Models a poll job
+  // that exhausted its retries against the mock vendor, leaving an otherwise-fine-looking
+  // COUNTY_PROCESSING package silently stuck until an operator intervenes.
+  const existingDeadLetterJob = await db
+    .selectFrom("workflow_jobs")
+    .select("id")
+    .where("package_id", "=", "00000000-0000-0000-0000-300000000002")
+    .where("job_type", "=", "POLL_VENDOR_SUBMISSION")
+    .executeTakeFirst();
+  if (!existingDeadLetterJob) {
+    await db
+      .insertInto("workflow_jobs")
+      .values({
+        package_id: "00000000-0000-0000-0000-300000000002",
+        job_type: "POLL_VENDOR_SUBMISSION",
+        status: "DEAD_LETTER",
+        payload: JSON.stringify({ packageId: "00000000-0000-0000-0000-300000000002" }),
+        attempts: 5,
+        max_attempts: 5,
+        last_error: "Vendor polling failed: CSC status API timed out after 5 attempts.",
+      })
+      .execute();
+  }
+
   console.log("[seed] Done.");
 }
 

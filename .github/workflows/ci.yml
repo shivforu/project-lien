@@ -99,7 +99,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       # This project's own build sandbox could run the Docker daemon but had no network
       # access to any container registry to pull node:20-slim (docs/DECISIONS.md D20) — so

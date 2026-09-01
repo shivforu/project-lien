@@ -1,6 +1,6 @@
 # Multi-stage build for apps/worker. Built from the monorepo root context
 # (`docker build -f infra/docker/Dockerfile.worker .`).
-FROM node:20-slim AS base
+FROM node:26-slim AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -16,7 +16,7 @@ FROM deps AS build
 COPY . .
 RUN pnpm --filter @project-lien/db... --filter @project-lien/worker... build
 
-FROM node:20-slim AS runner
+FROM node:26-slim AS runner
 WORKDIR /repo
 ENV NODE_ENV=production
 COPY --from=build /repo /repo

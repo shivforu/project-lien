@@ -1,6 +1,6 @@
 # Multi-stage build for apps/web (Next.js). Built from the monorepo root context
 # (`docker build -f infra/docker/Dockerfile.web .`).
-FROM node:20-slim AS base
+FROM node:26-slim AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -20,7 +20,7 @@ RUN pnpm build
 # version of this file) shipped dangling symlinks with nothing on the other end — the
 # image would fail at startup unable to resolve `next`/`react`. Standalone output traces
 # and copies only the actually-used runtime files into a self-contained tree instead.
-FROM node:20-slim AS runner
+FROM node:26-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 # .next/standalone mirrors the monorepo path (apps/web/server.js), since this build has a
